@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Estimation Page 3 - Alliance Marine</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">Alliance Marine</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+            aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('estimation') }}">Estimation</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('reports') }}">Reports</a></li>
+      </ul>
+      <span class="navbar-text me-3">Welcome, {{ username }}</span>
+      <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">Logout</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container mt-4">
+  <div class="card shadow">
+    <div class="card-body">
+      <h3 class="text-primary mb-3">Container: <strong>{{ container.container_no }}</strong></h3>
+      
+      <!-- Entry form -->
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label">Category</label>
+          <select id="categorySelect" class="form-select">
+            <option value="">Select Category</option>
+            {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Description</label>
+          <select id="descriptionSelect" class="form-select" disabled></select>
+        </div>
+        <div class="col-md-2" id="dimensionCol" style="display:none;">
+          <label class="form-label">Dimension</label>
+          <select id="dimensionSelect" class="form-select"></select>
+          <input type="number" id="dimensionInput" class="form-control" style="display:none;" placeholder="Enter dimension">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">MAT.COST</label>
+          <input type="text" id="matCost" class="form-control" readonly>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">MAN.HRS</label>
+          <input type="number" id="manHrs" class="form-control" step="0.1" min="0">
+        </div>
+      </div>
+      <button class="btn btn-primary mb-3" id="addEntryBtn">Add Entry</button>
+
+      <!-- Entries table -->
+      <div class="table-responsive">
+        <table class="table table-bordered text-center align-middle" id="entriesTable">
+          <thead class="table-light">
+            <tr>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Dimension</th>
+              <th>MAT.COST</th>
+              <th>MAN.HRS</th>
+              <th>LAB.COST</th>
+              <th>TOTAL</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot class="table-light">
+          <tr>
+            <th colspan="3" class="text-end">Totals:</th>
+            <th id="totalMat">0.00</th>
+            <th></th>
+            <th id="totalLab">0.00</th>
+            <th id="grandTotal">0.00</th>
+            <th></th>
+          </tr>
+        </tfoot>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-between mt-3">
+        <a href="{{ url_for('estimation') }}" class="btn btn-secondary">Back</a>
+        <div>
+          <button class="btn btn-success" id="exportExcel">Export Excel</button>
+          <button class="btn btn-danger" id="exportPDF">Export PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
+  <div id="toastContainer"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<div id="containerData" data-container='{{ container|tojson | safe }}'></div>
+
+<script>
+  const containerEl = document.getElementById("containerData");
+  let windowContainerObj = {};
+  try {
+    windowContainerObj = JSON.parse(containerEl.getAttribute("data-container"));
+  } catch (e) {
+    console.error("Failed to parse container data", e);
+    windowContainerObj = {};
+  }
+  window.containerObj = windowContainerObj;
+  console.log("ContainerObj loaded:", window.containerObj);
+  let entries = [];
+
+  function showToast(msg, type="danger") {
+    const toastId = "toast-" + Date.now();
+    const html = `
+      <div id="${toastId}" class="toast align-items-center text-white bg-${type} border-0 mb-2" role="alert">
+        <div class="d-flex">
+          <div class="toast-body">${msg}</div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+      </div>`;
+    document.getElementById("toastContainer").insertAdjacentHTML("beforeend", html);
+    new bootstrap.Toast(document.getElementById(toastId), { delay: 3000 }).show();
+  }
+
+  // === Category & Description loading ===
+  const categorySelect = document.getElementById("categorySelect");
+  const descriptionSelect = document.getElementById("descriptionSelect");
+  const dimensionCol = document.getElementById("dimensionCol");
+  const dimensionSelect = document.getElementById("dimensionSelect");
+  const dimensionInput = document.getElementById("dimensionInput");
+  const matCostInput = document.getElementById("matCost");
+  const manHrsInput = document.getElementById("manHrs");
+
+  categorySelect.addEventListener("change", async () => {
+    const category = categorySelect.value;
+    descriptionSelect.innerHTML = "";
+    matCostInput.value = "";
+    if (!category) {
+      descriptionSelect.disabled = true;
+      return;
+    }
+    const res = await fetch(`/api/descriptions?category=${encodeURIComponent(category)}`);
+    const data = await res.json();
+    descriptionSelect.disabled = false;
+    descriptionSelect.innerHTML = `<option value="">Select Description</option>`;
+    data.forEach(item => {
+      descriptionSelect.innerHTML += `<option value="${item.description}" data-dims='${JSON.stringify(item.dimensions)}' data-hasdims="${item.has_dimensions}">${item.description}</option>`;
+    });
+  });
+
+  descriptionSelect.addEventListener("change", async () => {
+    const desc = descriptionSelect.value;
+    const category = categorySelect.value;
+    matCostInput.value = "";
+    dimensionCol.style.display = "none";
+    dimensionInput.style.display = "none";
+    dimensionSelect.style.display = "none";
+
+// ✅ Always reset dimension fields when changing description
+    dimensionSelect.innerHTML = "";
+    dimensionInput.value = "";
+
+    if (!desc) return;
+
+    const selected = descriptionSelect.options[descriptionSelect.selectedIndex];
+    const hasDims = selected.getAttribute("data-hasdims") === "true";
+    const dims = JSON.parse(selected.getAttribute("data-dims"));
+
+// ✅ Handle "EVERY ADDITIONAL" separately
+    if (desc.startsWith("EVERY ADDITIONAL")) {
+      dimensionCol.style.display = "block";
+      dimensionInput.style.display = "block";
+      dimensionSelect.style.display = "none";
+    }
+// ✅ Handle descriptions that have specific dimension options
+    else if (hasDims && dims && dims.length > 0) {
+      dimensionCol.style.display = "block";
+      dimensionSelect.style.display = "block";
+      dimensionInput.style.display = "none";
+      dimensionSelect.innerHTML = `<option value="">Select Dimension</option>`;
+      dims.forEach(d => {
+        dimensionSelect.innerHTML += `<option value="${d}">${d}</option>`;
+      });
+    }
+// ✅ Descriptions without dimensions — hide and clear field
+    else {
+      dimensionCol.style.display = "none";
+      dimensionInput.value = "";
+      dimensionSelect.innerHTML = "";
+    }
+
+    const res = await fetch(`/api/matcost?category=${encodeURIComponent(category)}&description=${encodeURIComponent(desc)}`);
+    const data = await res.json();
+    matCostInput.value = data.mat_cost;
+  });
+
+  dimensionSelect.addEventListener("change", async () => {
+    const category = categorySelect.value;
+    const desc = descriptionSelect.value;
+    const dim = dimensionSelect.value;
+    const res = await fetch(`/api/matcost?category=${encodeURIComponent(category)}&description=${encodeURIComponent(desc)}&dimension=${encodeURIComponent(dim)}`);
+    const data = await res.json();
+    matCostInput.value = data.mat_cost;
+  });
+
+  dimensionInput.addEventListener("input", async () => {
+    const category = categorySelect.value;
+    const desc = descriptionSelect.value;
+    const dim = dimensionInput.value;
+    if (!dim) return;
+    const res = await fetch(`/api/matcost?category=${encodeURIComponent(category)}&description=${encodeURIComponent(desc)}&dimension=${encodeURIComponent(dim)}`);
+    const data = await res.json();
+    matCostInput.value = data.mat_cost;
+  });
+
+  // === Add entry ===
+  document.getElementById("addEntryBtn").addEventListener("click", () => {
+    const category = categorySelect.value;
+    const desc = descriptionSelect.value;
+    const dim = dimensionInput.style.display === "block" ? dimensionInput.value : dimensionSelect.value;
+    const matCost = parseFloat(matCostInput.value || 0);
+    const manHrs = parseFloat(manHrsInput.value || 0);
+    const labCost = manHrs * 75;
+    const total = matCost + labCost;
+
+    if (!category || !desc) {
+      showToast("Select Category and Description");
+      return;
+    }
+
+    entries.push({ category, description: desc, dimension: dim, mat_cost: matCost, man_hrs: manHrs, lab_cost: labCost, total });
+    renderEntries();
+  });
+
+  function renderEntries() {
+  const tbody = document.querySelector("#entriesTable tbody");
+  tbody.innerHTML = "";
+  let totalMat = 0, totalLab = 0, totalAll = 0;
+
+  entries.forEach((e, i) => {
+    totalMat += e.mat_cost;
+    totalLab += e.lab_cost;
+    totalAll += e.total;
+
+    tbody.innerHTML += `
+      <tr>
+        <td>${e.category}</td>
+        <td>${e.description}</td>
+        <td>${e.dimension || ""}</td>
+        <td>${e.mat_cost.toFixed(2)}</td>
+        <td>${e.man_hrs}</td>
+        <td>${e.lab_cost.toFixed(2)}</td>
+        <td>${e.total.toFixed(2)}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteEntry(${i})">Delete</button></td>
+      </tr>`;
+  });
+
+  document.getElementById("totalMat").innerText = totalMat.toFixed(2);
+  document.getElementById("totalLab").innerText = totalLab.toFixed(2);
+  document.getElementById("grandTotal").innerText = totalAll.toFixed(2);
+}
+
+  function deleteEntry(i) {
+    entries.splice(i, 1);
+    renderEntries();
+  }
+
+  // === Export helpers ===
+  function filenameFromContentDisposition(cd, fallback) {
+    if (!cd) return fallback;
+    let m = cd.match(/filename\*?=['"]?UTF-8''([^;\r\n"]+)/) || cd.match(/filename="?([^;"]+)"?/);
+    if (!m) return fallback;
+    try { return decodeURIComponent(m[1].replace(/\+/g, '%20')); }
+    catch (e) { return m[1].replace(/"/g, ''); }
+  }
+
+  async function downloadResponseAsFile(resp, fallbackName) {
+    if (!resp.ok) {
+      const t = await resp.text();
+      showToast("Export failed: " + (t || resp.statusText));
+      return;
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const filename = filenameFromContentDisposition(cd, fallbackName);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById("exportExcel").addEventListener("click", async () => {
+    if (entries.length === 0) return showToast("Add at least one entry before exporting");
+    try {
+      const resp = await fetch("/export_excel", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ entries: entries, container: window.containerObj })
+      });
+      const fallback = window.containerObj?.container_no ? `${window.containerObj.container_no}.xlsx` : "estimation.xlsx";
+      await downloadResponseAsFile(resp, fallback);
+    } catch (err) {
+      console.error(err);
+      showToast("Excel export failed.");
+    }
+  });
+
+  document.getElementById("exportPDF").addEventListener("click", async () => {
+    if (entries.length === 0) return showToast("Add at least one entry before exporting");
+    try {
+      const resp = await fetch("/export_pdf", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ entries: entries, container: window.containerObj })
+      });
+      const fallback = window.containerObj?.container_no ? `${window.containerObj.container_no}.pdf` : "estimation.pdf";
+      await downloadResponseAsFile(resp, fallback);
+    } catch (err) {
+      console.error(err);
+      showToast("PDF export failed.");
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+*.sqlite3
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python packaging
+dist/
+build/
+*.egg-info/
+
+# Instance DB and exported reports (do NOT commit)
+instance/users.db
+reports/
+tmp/
+*.xlsx
+*.pdf
+
+# Pipenv / poetry
+Pipfile.lock
+poetry.lock
