@@ -1,10 +1,13 @@
 services:
   - type: web
-    name: alliance-marine-portal
+    name: alliance-marine-repair
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install -r requirements.txt
+      flask --app app.py import-tariffs
     startCommand: gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
     plan: free
+
