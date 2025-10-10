@@ -494,22 +494,64 @@
     }
 
     // Save to DB
-    try {
-      const res = await fetch("/add_manual_tariff", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category, description, dimension, mat_cost: matCost })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || "Saved to tariffs", "success");
-      } else {
-        showToast(data.error || "Failed to save", "danger");
+  try {
+    const res = await fetch("/add_manual_tariff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category, description, dimension, mat_cost: matCost }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      showToast(data.message || "Saved to tariffs", "success");
+
+    // 🟢 NEW: Update dropdowns instantly without page refresh
+      const newTariff = {
+        category,
+        description,
+        dimension: dimension || "",
+      };
+
+    // ✅ Update Category dropdown if not already there
+      const categorySelect = document.getElementById("category");
+      const existingCat = Array.from(categorySelect.options).some(
+        (opt) => opt.value === newTariff.category
+      );
+
+      if (!existingCat) {
+        const opt = document.createElement("option");
+        opt.value = newTariff.category;
+        opt.textContent = newTariff.category;
+        categorySelect.appendChild(opt);
       }
-    } catch (err) {
-      console.error(err);
-      showToast("Network error", "danger");
+
+    // ✅ If current category is selected, update Description dropdown
+      if (categorySelect.value === newTariff.category) {
+        const descSelect = document.getElementById("description");
+        const existingDesc = Array.from(descSelect.options).some(
+          (opt) => opt.value === newTariff.description
+        );
+      if (!existingDesc) {
+        const opt = document.createElement("option");
+        opt.value = newTariff.description;
+        opt.textContent = newTariff.description;
+        descSelect.appendChild(opt);
+      }
     }
+
+    // ✅ Optionally, reset form inputs for clarity
+    document.getElementById("manualCategory").value = "";
+    document.getElementById("manualDescription").value = "";
+    document.getElementById("manualMatCost").value = "";
+
+  } else {
+    showToast(data.error || "Failed to save", "danger");
+  }
+} catch (err) {
+  console.error(err);
+  showToast("Network error", "danger");
+}
 
     // Reset and close drawer
     const drawer = bootstrap.Offcanvas.getInstance(drawerEl);

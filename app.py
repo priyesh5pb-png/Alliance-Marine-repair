@@ -381,7 +381,14 @@ from flask import send_from_directory, abort
 
 @app.route("/preview/<int:report_id>")
 def preview_report(report_id):
+    """
+    Serves a report file (PDF/Excel). If missing, auto-regenerates it using
+    existing export logic and database data, preserving full styling.
+    """
+    from io import BytesIO
+
     report = Report.query.get_or_404(report_id)
+
     if not report.file_path:
         flash("No file attached for this report.", "error")
         return redirect(url_for("reports"))
@@ -389,15 +396,32 @@ def preview_report(report_id):
     directory = os.path.dirname(report.file_path)
     filename = os.path.basename(report.file_path)
 
-    # Security: ensure file is inside allowed base path
     base = os.path.abspath(get_storage_base())
     file_abspath = os.path.abspath(report.file_path)
     if not file_abspath.startswith(base):
         abort(403)
 
+    # 🟡 Auto-regenerate if missing
     if not os.path.exists(file_abspath):
-        flash("File not found on server.", "error")
-        return redirect(url_for("reports"))
+        print(f"[Auto-regen] Regenerating missing {report.file_type.upper()} report {report.id}...")
+        container = ContainerInfo.query.get(report.container_id)
+        if not container:
+            flash("Container info not found.", "error")
+            return redirect(url_for("reports"))
+
+        # Get entries related to this container/report
+        entries = get_entries_for_report(report.container_no)
+
+        if report.file_type.lower() == "pdf":
+            new_path = regenerate_pdf(report, container, entries)
+        else:
+            new_path = regenerate_excel(report, container, entries)
+
+        report.file_path = new_path
+        db.session.commit()
+        file_abspath = new_path
+        directory = os.path.dirname(file_abspath)
+        filename = os.path.basename(file_abspath)
 
     return send_from_directory(directory, filename)
 
@@ -708,6 +732,37 @@ def export_excel():
     line = container_info.get("line", "N/A")
     container_no = safe_filename(container_no_raw)
 
+    # ✅ Call the shared helper (where your existing Excel logic goes)
+    file_path, grand_total = export_excel_internal(username, container_info, entries, line, container_no)
+
+     # ✅ Log the export in DB
+    report = Report(
+        username=username,
+        container_no=container_no,
+        line=line,
+        grand_total=grand_total,
+        file_type="excel",
+        file_path=file_path,
+        container_id=session.get("container_id"),
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    # ✅ Return as downloadable file
+    safe_line = safe_filename(line or "LINE")
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name=f"{safe_line}_{container_no}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+def export_excel_internal(username, container_info, entries, line, container_no):
+    """
+    Shared Excel generator used by both /export_excel and auto-regeneration.
+    Returns (file_path, grand_total).
+    """
+
     # normalize numbers and add SR
     for i, row in enumerate(entries, start=1):
         row["sr"] = i
@@ -820,7 +875,7 @@ def export_excel():
                 # skip formatting writable operations on MergeCell placeholders
                 if not isinstance(cell, MergedCell):
                     cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell.border = border
+                    cell.border = border
 
         # style totals row
         total_row = repair_start + len(df.index)
@@ -879,26 +934,8 @@ def export_excel():
     # ✅ get total amount from calculated Excel totals
     grand_total = float(total_all) if "total_all" in locals() else 0.0
 
-    # ✅ create report entry linked to container
-    report = Report(
-        username=username,
-        container_no=container_no_raw,
-        line=line,
-        grand_total=grand_total,
-        file_type="excel",
-        file_path=file_path,
-        container_id=container_id  # links to ContainerInfo table
-    )
-
-    db.session.add(report)
-    db.session.commit()
-
-    output.seek(0)
-    return send_file(output,
-                     as_attachment=True,
-                     download_name=f"{safe_line}_{container_no}.xlsx",
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    
+    return file_path, total_all
+                 
 @app.route("/export_pdf", methods=["POST"])
 def export_pdf():
     payload = request.get_json()
@@ -915,6 +952,33 @@ def export_pdf():
     line = container_info.get("line", "N/A")
     container_no = safe_filename(container_no_raw)
 
+    # ✅ Call shared helper (which contains your existing logic)
+    file_path, grand_total = export_pdf_internal(username, container_info, entries, line, container_no)
+
+ # ✅ Save to DB
+    report = Report(
+        username=username,
+        container_no=container_no,
+        line=line,
+        grand_total=grand_total,
+        file_type="pdf",
+        file_path=file_path,
+        container_id=session.get("container_id")
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    # ✅ Return file
+    safe_line = safe_filename(line or "LINE")
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name=f"{safe_line}_{container_no}.pdf",
+        mimetype="application/pdf",
+    )
+
+def export_pdf_internal(username, container_info, entries, line, container_no):
+        
     styles = getSampleStyleSheet()
     centered = ParagraphStyle(name="centered", parent=styles['Normal'], alignment=TA_CENTER)
 
@@ -1048,26 +1112,40 @@ def export_pdf():
             except Exception:
                 continue
 
-    report = Report(
-        username=username,
-        container_no=container_no_raw,
-        line=line,
-        grand_total=grand_total,
-        file_type="pdf",
-        file_path=file_path,
-        container_id=container_id
-    )
+    return file_path, total_sum            
 
-    db.session.add(report)
-    db.session.commit()
+def regenerate_pdf(report, container, entries):
+    """Auto-regenerate missing PDF using the existing export logic."""
+    print(f"[Auto-regen] Rebuilding PDF for {report.container_no}...")
+    return export_pdf_internal(report.username, container, entries, container.line, container.container_no)
 
-    safe_line = safe_filename(line or "LINE")
-    buffer.seek(0)
-    return send_file(buffer,
-                 as_attachment=True,
-                 download_name=f"{safe_line}_{container_no}.pdf",
-                 mimetype="application/pdf")
 
+def regenerate_excel(report, container, entries):
+    """Auto-regenerate missing Excel using the existing export logic."""
+    print(f"[Auto-regen] Rebuilding Excel for {report.container_no}...")
+    return export_excel_internal(report.username, container, entries, container.line, container.container_no)
+
+def get_entries_for_report(container_no):
+    """
+    Fetch all repair entries (tariff-based + manual) for a given container.
+    Adjust this query based on how you currently store entries.
+    """
+    entries = []
+
+    # Example: if you store repair entries as a JSON field or separate table
+    # you can query it here. For now, we'll assume you derive from tariffs.
+    tariffs = Tariff.query.all()
+    for t in tariffs:
+        entries.append({
+            "category": t.category,
+            "description": t.description,
+            "dimension": t.dimensions or "",
+            "mat_cost": float(t.mat_cost or 0),
+            "man_hrs": 0,
+            "lab_cost": 0,
+            "total": float(t.mat_cost or 0)
+        })
+    return entries
 
 # ---------------- Run ----------------
 if __name__ == "__main__":
