@@ -762,8 +762,24 @@ def export_excel_internal(username, container_info, entries, line, container_no)
     Shared Excel generator used by both /export_excel and auto-regeneration.
     Returns (file_path, grand_total).
     """
+    from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.cell.cell import MergedCell
 
-    # normalize numbers and add SR
+    # ---- Normalize container_info for both dict and SQLAlchemy object ----
+    if not isinstance(container_info, dict):
+        container_info = {
+            "container_no": getattr(container_info, "container_no", ""),
+            "in_date": getattr(container_info, "in_date", ""),
+            "mfg_date": getattr(container_info, "mfg_date", ""),
+            "line": getattr(container_info, "line", ""),
+            "size": getattr(container_info, "size", ""),
+            "gw": getattr(container_info, "gw", ""),
+            "tw": getattr(container_info, "tw", ""),
+            "csc": getattr(container_info, "csc", "")
+        }
+
+    # ---- Normalize and prepare entries ----
     for i, row in enumerate(entries, start=1):
         row["sr"] = i
         row["mat_cost"] = round(float(row.get("mat_cost", 0) or 0), 2)
@@ -785,12 +801,13 @@ def export_excel_internal(username, container_info, entries, line, container_no)
         "lab_cost": total_lab,
         "total": total_all,
     }
+
     if not df.empty:
         df = pd.concat([df, pd.DataFrame([totals_row])], ignore_index=True)
     else:
         df = pd.DataFrame([totals_row])
 
-    # prepare container info table
+    # ---- Container Info Table ----
     container_headers = ["Container No", "In Date", "Mfg Date", "Line", "Size", "GW", "TW", "CSC"]
     container_data = [[
         container_info.get("container_no", ""),
@@ -806,19 +823,12 @@ def export_excel_internal(username, container_info, entries, line, container_no)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         wb = writer.book
-
-        # safe remove default sheet (if exists)
         if "Sheet" in wb.sheetnames:
             wb.remove(wb["Sheet"])
-
-        # create Report sheet and make it active (prevents "at least one sheet" errors)
         ws = wb.create_sheet(title="Report")
-        wb.active = wb.sheetnames.index("Report")
+        wb.active = ws
 
-        from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
-        from openpyxl.utils import get_column_letter
-        from openpyxl.cell.cell import MergedCell
-
+        # ---- Styles ----
         thin = Side(border_style="thin", color="000000")
         border = Border(top=thin, left=thin, right=thin, bottom=thin)
         header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
@@ -852,6 +862,7 @@ def export_excel_internal(username, container_info, entries, line, container_no)
         # ---- Repair Table ----
         repair_start = start_row + len(container_data) + 3
         headers = ["SR", "Category", "Description", "Dimension", "MAT.COST", "MAN.HRS", "LAB.COST", "TOTAL"]
+
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=repair_start, column=col_num, value=header)
             cell.font = Font(bold=True)
@@ -859,83 +870,56 @@ def export_excel_internal(username, container_info, entries, line, container_no)
             cell.fill = header_fill
             cell.border = border
 
-        # write entries
         for idx, row in enumerate(df.itertuples(index=False), start=repair_start + 1):
-            ws.cell(row=idx, column=1, value=getattr(row, "sr", ""))             # SR
-            ws.cell(row=idx, column=2, value=getattr(row, "category", ""))       # Category
-            ws.cell(row=idx, column=3, value=getattr(row, "description", ""))    # Description
-            ws.cell(row=idx, column=4, value=getattr(row, "dimension", ""))      # Dimension
-            ws.cell(row=idx, column=5, value=getattr(row, "mat_cost", ""))       # MAT COST
-            ws.cell(row=idx, column=6, value=getattr(row, "man_hrs", ""))        # MAN HRS
-            ws.cell(row=idx, column=7, value=getattr(row, "lab_cost", ""))       # LAB COST
-            ws.cell(row=idx, column=8, value=getattr(row, "total", ""))          # TOTAL
+            ws.cell(row=idx, column=1, value=getattr(row, "sr", ""))
+            ws.cell(row=idx, column=2, value=getattr(row, "category", ""))
+            ws.cell(row=idx, column=3, value=getattr(row, "description", ""))
+            ws.cell(row=idx, column=4, value=getattr(row, "dimension", ""))
+            ws.cell(row=idx, column=5, value=getattr(row, "mat_cost", ""))
+            ws.cell(row=idx, column=6, value=getattr(row, "man_hrs", ""))
+            ws.cell(row=idx, column=7, value=getattr(row, "lab_cost", ""))
+            ws.cell(row=idx, column=8, value=getattr(row, "total", ""))
 
             for c in range(1, 9):
                 cell = ws.cell(row=idx, column=c)
-                # skip formatting writable operations on MergeCell placeholders
                 if not isinstance(cell, MergedCell):
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                     cell.border = border
 
-        # style totals row
-        total_row = repair_start + len(df.index)
-        for c in range(1, 9):
-            cell = ws.cell(row=total_row, column=c)
-            cell.font = Font(bold=True)
-            cell.fill = header_fill
-            # center totals where applicable
-            if not isinstance(cell, MergedCell):
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = border
-
         # ---- Approved Amount ----
-        approved_row = total_row + 3
+        approved_row = repair_start + len(df) + 3
         ws.merge_cells(f"A{approved_row}:G{approved_row}")
-        ws[f"A{approved_row}"] = "Approved Amount:"
+        ws[f"A{approved_row}"] = "Approved Amount"
         ws[f"A{approved_row}"].font = Font(bold=True)
         ws[f"A{approved_row}"].alignment = Alignment(horizontal="right", vertical="center")
-        ws[f"A{approved_row}"].border = border
-
         ws[f"H{approved_row}"].alignment = Alignment(horizontal="center", vertical="center")
         ws[f"H{approved_row}"].border = border
 
-        # ---- Auto-fit columns safely (skip MergedCell objects) ----
+        # ---- Auto-fit ----
         for col_idx in range(1, ws.max_column + 1):
             col_letter = get_column_letter(col_idx)
             max_length = 0
             for cell in ws[col_letter]:
-                # skip merged placeholders
                 if isinstance(cell, MergedCell):
                     continue
-                if cell.value is not None:
+                if cell.value:
                     vlen = len(str(cell.value))
                     if vlen > max_length:
                         max_length = vlen
-                    # set alignment for non-merged cells (already set above but safe to ensure)
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-            # set width (min 10, cap at 50)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
             ws.column_dimensions[col_letter].width = max(10, min(max_length + 4, 50))
 
-    output.seek(0)
+        wb.save(output)
 
-    # save + log in DB
+    # ---- Save file ----
+    output.seek(0)
     user_dir = ensure_user_dir(username)
-    safe_line = safe_filename(line or "LINE")
-    file_path = os.path.join(
-        user_dir,
-        f"{safe_line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    )
+    file_path = os.path.join(user_dir, f"{line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
     with open(file_path, "wb") as f:
         f.write(output.getvalue())
 
-    # ✅ get container_id from session (set earlier in /estimation)
-    container_id = session.get("container_id")
-
-    # ✅ get total amount from calculated Excel totals
-    grand_total = float(total_all) if "total_all" in locals() else 0.0
-
-    return file_path, total_all
-                 
+    return file_path, float(total_all)
+           
 @app.route("/export_pdf", methods=["POST"])
 def export_pdf():
     payload = request.get_json()
@@ -978,6 +962,18 @@ def export_pdf():
     )
 
 def export_pdf_internal(username, container_info, entries, line, container_no):
+
+    if not isinstance(container_info, dict):
+        container_info = {
+            "container_no": getattr(container_info, "container_no", ""),
+            "in_date": getattr(container_info, "in_date", ""),
+            "mfg_date": getattr(container_info, "mfg_date", ""),
+            "line": getattr(container_info, "line", ""),
+            "size": getattr(container_info, "size", ""),
+            "gw": getattr(container_info, "gw", ""),
+            "tw": getattr(container_info, "tw", ""),
+            "csc": getattr(container_info, "csc", "")
+        }
         
     styles = getSampleStyleSheet()
     centered = ParagraphStyle(name="centered", parent=styles['Normal'], alignment=TA_CENTER)
@@ -1112,7 +1108,7 @@ def export_pdf_internal(username, container_info, entries, line, container_no):
             except Exception:
                 continue
 
-    return file_path, total_sum            
+    return file_path, float(total_sum)            
 
 def regenerate_pdf(report, container, entries):
     """Auto-regenerate missing PDF using the existing export logic."""
