@@ -386,7 +386,7 @@ def preview_report(report_id):
     from sqlalchemy.orm import joinedload
 
     # Fetch the report record
-    report = Report.query.options(joinedload(Report.container)).get_or_404(report_id)
+    report = Report.query.get_or_404(report_id)
 
     # Extract file info
     file_path = report.file_path
