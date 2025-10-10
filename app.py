@@ -66,7 +66,7 @@ class ContainerInfo(db.Model):
     mfg_date = db.Column(db.String(20))
     gw = db.Column(db.String(20))
     tw = db.Column(db.String(20))
-    csc = db.Column(db.String(20))
+    csc = db.Column(db.String(100))
 
     reports = db.relationship("Report", backref="container_info", lazy=True)
 
