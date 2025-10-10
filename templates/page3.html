@@ -1,3 +1,5 @@
+<!-- PAGE3 VERSION 2025-10-10 PP-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,26 +9,7 @@
 </head>
 <body class="bg-light">
 
-<!-- Navbar -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">Alliance Marine</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
-            aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('estimation') }}">Estimation</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('reports') }}">Reports</a></li>
-      </ul>
-      <span class="navbar-text me-3">Welcome, {{ username }}</span>
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">Logout</a>
-    </div>
-  </div>
-</nav>
+{% include 'navbar.html' %}
 
 <div class="container mt-4">
   <div class="card shadow">
@@ -63,6 +46,64 @@
         </div>
       </div>
       <button class="btn btn-primary mb-3" id="addEntryBtn">Add Entry</button>
+      <button type="button" class="btn btn-outline-secondary" data-bs-toggle="offcanvas" data-bs-target="#manualEntryDrawer">
+        <i class="bi bi-plus-circle me-1"></i> Add Manual Entry
+      </button>
+   
+<!-- Manual Repair Entry Drawer -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="manualEntryDrawer" aria-labelledby="manualEntryLabel">
+  <div class="offcanvas-header border-bottom">
+    <h5 class="offcanvas-title fw-bold" id="manualEntryLabel">Add Manual Repair Entry</h5>
+    <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body">
+    <form id="manualEntryForm">
+      <div class="mb-3">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="manualCategory">
+          <option value="">Select existing category</option>
+          {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+          <option value="__new__">+ Add new category</option>
+        </select>
+      </div>
+
+      <div class="mb-3 d-none" id="newCategoryBox">
+        <label class="form-label">New Category Name</label>
+        <input type="text" id="newCategoryName" class="form-control" placeholder="Enter new category name">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Description</label>
+        <input type="text" id="manualDescription" class="form-control" placeholder="Enter repair description" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Dimension (optional)</label>
+        <input type="text" id="manualDimension" class="form-control" placeholder="e.g., 2x4">
+      </div>
+
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">MAT COST</label>
+          <input type="number" id="manualMatCost" class="form-control" required>
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">MAN HRS</label>
+          <input type="number" step="0.1" id="manualManHrs" class="form-control" required>
+        </div>
+      </div>
+
+      <div class="text-end">
+        <button type="button" class="btn btn-primary" id="saveManualEntryBtn">
+          <i class="bi bi-save me-1"></i> Save Entry
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 
       <!-- Entries table -->
       <div class="table-responsive">
@@ -244,21 +285,36 @@
       return;
     }
 
-    entries.push({ category, description: desc, dimension: dim, mat_cost: matCost, man_hrs: manHrs, lab_cost: labCost, total });
+    window.entries.push({ category, description: desc, dimension: dim, mat_cost: matCost, man_hrs: manHrs, lab_cost: labCost, total });
     renderEntries();
   });
 
   function renderEntries() {
+  console.log("renderEntries() called with entries:", window.entries);
+
   const tbody = document.querySelector("#entriesTable tbody");
+  if (!tbody) {
+    console.warn("No table body found for #entriesTable!");
+    return;
+  }
+
   tbody.innerHTML = "";
   let totalMat = 0, totalLab = 0, totalAll = 0;
 
-  entries.forEach((e, i) => {
+  // ✅ Use the correct global variable reference
+  const data = window.entries || [];
+
+  if (data.length === 0) {
+    console.log("No entries to render yet.");
+    return;
+  }
+
+  data.forEach((e, i) => {
     totalMat += e.mat_cost;
     totalLab += e.lab_cost;
     totalAll += e.total;
 
-    tbody.innerHTML += `
+    const row = `
       <tr>
         <td>${e.category}</td>
         <td>${e.description}</td>
@@ -269,15 +325,25 @@
         <td>${e.total.toFixed(2)}</td>
         <td><button class="btn btn-sm btn-danger" onclick="deleteEntry(${i})">Delete</button></td>
       </tr>`;
+
+    // ✅ Corrected insertion method ("beforeend" was misspelled in your code)
+    tbody.insertAdjacentHTML("beforeend", row);
   });
 
-  document.getElementById("totalMat").innerText = totalMat.toFixed(2);
-  document.getElementById("totalLab").innerText = totalLab.toFixed(2);
-  document.getElementById("grandTotal").innerText = totalAll.toFixed(2);
+  console.log(`Rendered ${data.length} entries to table.`);
+
+  // ✅ Update total labels (if these exist)
+  const totalMatEl = document.getElementById("totalMat");
+  const totalLabEl = document.getElementById("totalLab");
+  const grandTotalEl = document.getElementById("grandTotal");
+
+  if (totalMatEl) totalMatEl.innerText = totalMat.toFixed(2);
+  if (totalLabEl) totalLabEl.innerText = totalLab.toFixed(2);
+  if (grandTotalEl) grandTotalEl.innerText = totalAll.toFixed(2);
 }
 
   function deleteEntry(i) {
-    entries.splice(i, 1);
+    window.entries.splice(i, 1);
     renderEntries();
   }
 
@@ -310,38 +376,149 @@
   }
 
   document.getElementById("exportExcel").addEventListener("click", async () => {
-    if (entries.length === 0) return showToast("Add at least one entry before exporting");
-    try {
-      const resp = await fetch("/export_excel", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ entries: entries, container: window.containerObj })
-      });
-      const fallback = window.containerObj?.container_no ? `${window.containerObj.container_no}.xlsx` : "estimation.xlsx";
-      await downloadResponseAsFile(resp, fallback);
-    } catch (err) {
-      console.error(err);
-      showToast("Excel export failed.");
+  if (!window.entries || window.entries.length === 0)
+    return showToast("Add at least one entry before exporting");
+
+  const payload = {
+    entries: window.entries,
+    container: window.containerObj
+  };
+
+  try {
+    const resp = await fetch("/export_excel", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const fallback = window.containerObj?.container_no
+      ? `${window.containerObj.container_no}.xlsx`
+      : "estimation.xlsx";
+    await downloadResponseAsFile(resp, fallback);
+  } catch (err) {
+    console.error(err);
+    showToast("Excel export failed.", "danger");
+  }
+});
+
+  document.getElementById("exportPDF").addEventListener("click", async () => {
+  if (!window.entries || window.entries.length === 0)
+    return showToast("Add at least one entry before exporting");
+
+  const payload = {
+    entries: window.entries,
+    container: window.containerObj
+  };
+
+  try {
+    const resp = await fetch("/export_pdf", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const fallback = window.containerObj?.container_no
+      ? `${window.containerObj.container_no}.pdf`
+      : "estimation.pdf";
+    await downloadResponseAsFile(resp, fallback);
+  } catch (err) {
+    console.error(err);
+    showToast("PDF export failed.", "danger");
+  }
+});
+
+ document.addEventListener("DOMContentLoaded", () => {
+  window.entries = window.entries || [];
+
+  const manualCategory = document.getElementById("manualCategory");
+  const newCategoryBox = document.getElementById("newCategoryBox");
+  const newCategoryName = document.getElementById("newCategoryName");
+  const manualDescription = document.getElementById("manualDescription");
+  const manualDimension = document.getElementById("manualDimension");
+  const manualMatCost = document.getElementById("manualMatCost");
+  const manualManHrs = document.getElementById("manualManHrs");
+  const saveBtn = document.getElementById("saveManualEntryBtn");
+  const form = document.getElementById("manualEntryForm");
+  const drawerEl = document.getElementById("manualEntryDrawer");
+
+  manualCategory.addEventListener("change", (e) => {
+    if (e.target.value === "__new__") {
+      newCategoryBox.classList.remove("d-none");
+      newCategoryName.focus();
+    } else {
+      newCategoryBox.classList.add("d-none");
     }
   });
 
-  document.getElementById("exportPDF").addEventListener("click", async () => {
-    if (entries.length === 0) return showToast("Add at least one entry before exporting");
+  saveBtn.addEventListener("click", async () => {
+    let category = manualCategory.value;
+    if (category === "__new__") {
+      category = newCategoryName.value.trim();
+      if (!category) {
+        showToast("Please enter new category name.", "danger");
+        return;
+      }
+    }
+
+    const description = manualDescription.value.trim();
+    const dimension = manualDimension.value.trim() || "";
+    const matCost = parseFloat(manualMatCost.value) || 0;
+    const manHrs = parseFloat(manualManHrs.value) || 0;
+
+    if (!category || !description) {
+      showToast("Please enter both category and description.", "danger");
+      return;
+    }
+
+    const labCost = manHrs * 75;
+    const total = matCost + labCost;
+
+    // Add entry to array
+    window.entries.push({
+      category,
+      description,
+      dimension,
+      mat_cost: matCost,
+      man_hrs: manHrs,
+      lab_cost: labCost,
+      total
+    });
+
+    console.log("entries before render:", window.entries);
+
+    // Render table (safe call)
+    if (typeof renderEntries === "function") {
+      renderEntries();
+    } else {
+      setTimeout(() => renderEntries && renderEntries(), 500);
+    }
+
+    // Save to DB
     try {
-      const resp = await fetch("/export_pdf", {
+      const res = await fetch("/add_manual_tariff", {
         method: "POST",
-        credentials: "same-origin",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ entries: entries, container: window.containerObj })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, description, dimension, mat_cost: matCost })
       });
-      const fallback = window.containerObj?.container_no ? `${window.containerObj.container_no}.pdf` : "estimation.pdf";
-      await downloadResponseAsFile(resp, fallback);
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "Saved to tariffs", "success");
+      } else {
+        showToast(data.error || "Failed to save", "danger");
+      }
     } catch (err) {
       console.error(err);
-      showToast("PDF export failed.");
+      showToast("Network error", "danger");
     }
+
+    // Reset and close drawer
+    const drawer = bootstrap.Offcanvas.getInstance(drawerEl);
+    drawer?.hide();
+    form.reset();
+    newCategoryBox.classList.add("d-none");
   });
+});
+
 </script>
 </body>
 </html>

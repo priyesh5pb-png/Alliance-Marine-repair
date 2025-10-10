@@ -10,25 +10,7 @@
 </head>
 <body class="bg-light">
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">Alliance Marine</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
-            aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('estimation') }}">Estimation</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('reports') }}">Reports</a></li>
-      </ul>
-      <span class="navbar-text me-3">Welcome, {{ username }}</span>
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">Logout</a>
-    </div>
-  </div>
-</nav>
+{% include 'navbar.html' %}
 
 <div class="container mt-5">
   <div class="card shadow-lg">
@@ -53,6 +35,14 @@
             <option value="excel">Excel</option>
           </select>
 
+          <!-- Line filter -->
+          <select id="lineFilter" class="form-select">
+            <option value="">All Lines</option>
+            {% for line in lines %}
+              <option value="{{ line }}">{{ line }}</option>
+            {% endfor %}
+          </select>
+
           {% if is_admin %}
             <select id="userFilter" class="form-select">
               <option value="">All Users</option>
@@ -63,13 +53,14 @@
           {% endif %}
 
           <button class="btn btn-outline-primary" id="filterBtn">Filter</button>
-          <button class="btn btn-outline-secondary" id="resetBtn">Reset</button>
+          <button class="btn btn-outline-secondary" id="resetFiltersBtn">Reset</button>
         </div>
 
         <!-- Export reports list -->
         <a href="{{ url_for('export_reports_excel') }}" class="btn btn-outline-success">
           {% if is_admin %}Export All Reports{% else %}Export My Reports{% endif %}
         </a>
+        <button class="btn btn-outline-success" id="exportReportsBtn">Export Excel</button>
       </div>
 
       {% if reports %}
@@ -86,11 +77,16 @@
               <th>File Type</th>
               <th>Date</th>
               <th>Preview</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {% for r in reports %}
-            <tr>
+            <tr data-id="{{ r.id }}" 
+                data-line="{{ r.line }}" 
+                data-filetype="{{ r.file_type }}" 
+                data-date="{{ r.timestamp.strftime('%Y-%m-%d') }}" 
+                data-user="{{ r.username }}">
               <td>{{ loop.index }}</td>
               <td><strong>{{ r.container_no }}</strong></td>
               <td>{{ r.line }}</td>
@@ -112,6 +108,11 @@
                   Preview
                 </a>
               </td>
+              <td>
+                <button class="btn btn-sm btn-danger delete-btn" data-id="{{ r.id }}">
+                   Delete
+                </button>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -126,54 +127,138 @@
 
 <script>
 function filterReports() {
-  const filter = document.getElementById("searchInput").value.toLowerCase();
+  const searchFilter = document.getElementById("searchInput").value.toLowerCase(); // container_no
   const fromDate = document.getElementById("fromDate").value;
   const toDate = document.getElementById("toDate").value;
   const fileTypeFilter = document.getElementById("fileTypeFilter").value;
+  const lineFilter = document.getElementById("lineFilter")?.value || "";
   const userFilter = document.getElementById("userFilter") ? document.getElementById("userFilter").value : "";
 
   const rows = document.querySelectorAll("#reportsTable tbody tr");
+
   rows.forEach(row => {
-    const text = row.innerText.toLowerCase();
-    const dateAttr = row.querySelector("td:nth-child({{ 6 if is_admin else 5 }})").getAttribute("data-date");
-    const fileTypeCell = row.querySelector("td:nth-child({{ 5 if is_admin else 4 }})").innerText.toLowerCase();
-    const userCell = row.querySelector("td:nth-child({{ 4 if is_admin else 0 }})");
-    const userText = userCell ? userCell.innerText : "";
+    const rowText = row.innerText.toLowerCase();
+    const dateAttr = row.getAttribute("data-date");
+    const rowFileType = row.getAttribute("data-filetype")?.toLowerCase() || "";
+    const rowLine = row.getAttribute("data-line")?.toLowerCase() || "";
+    const rowUser = row.getAttribute("data-user")?.toLowerCase() || "";
 
-    let show = text.includes(filter);
+    let show = true;
 
-    // Date filter
-    if (dateAttr) {
-      const rowDate = new Date(dateAttr);
-      if (fromDate && !toDate && rowDate.toISOString().slice(0,10) !== fromDate) show = false;
-      if (!fromDate && toDate && rowDate.toISOString().slice(0,10) !== toDate) show = false;
-      if (fromDate && toDate && (rowDate < new Date(fromDate) || rowDate > new Date(toDate))) show = false;
-    }
+    // Container number search
+    if (searchFilter && !rowText.includes(searchFilter)) show = false;
+
+    // Line dropdown filter
+    if (lineFilter && rowLine !== lineFilter.toLowerCase()) show = false;
 
     // File type filter
-    if (fileTypeFilter && !fileTypeCell.includes(fileTypeFilter)) {
-      show = false;
+    if (fileTypeFilter && rowFileType !== fileTypeFilter.toLowerCase()) show = false;
+
+    // Date range filter
+    if (fromDate && toDate && dateAttr) {
+      const rowDate = new Date(dateAttr);
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      if (rowDate < from || rowDate > to) show = false;
     }
 
-    // User filter (admin only)
-    if (userFilter && userText && userText !== userFilter) {
-      show = false;
-    }
+    // Admin user filter
+    if (userFilter && rowUser !== userFilter.toLowerCase()) show = false;
 
     row.style.display = show ? "" : "none";
   });
 }
 
+// Attach events
 document.getElementById("searchInput").addEventListener("keyup", filterReports);
 document.getElementById("filterBtn").addEventListener("click", filterReports);
-document.getElementById("resetBtn").addEventListener("click", () => {
-  document.getElementById("fromDate").value = "";
-  document.getElementById("toDate").value = "";
-  document.getElementById("fileTypeFilter").value = "";
-  document.getElementById("searchInput").value = "";
-  if (document.getElementById("userFilter")) document.getElementById("userFilter").value = "";
-  filterReports();
+document.getElementById("fileTypeFilter").addEventListener("change", filterReports);
+if (document.getElementById("lineFilter")) document.getElementById("lineFilter").addEventListener("change", filterReports);
+if (document.getElementById("userFilter")) document.getElementById("userFilter").addEventListener("change", filterReports);
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll(".delete-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const reportId = btn.dataset.id;
+      if (!confirm("Are you sure you want to delete this report?")) return;
+
+      try {
+        const res = await fetch(`/delete_report/${reportId}`, { method: "POST" });
+        const data = await res.json();
+        if (res.ok) {
+          alert(data.message || "Report deleted successfully");
+          location.reload();
+        } else {
+          alert(data.error || "Failed to delete report");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Error deleting report");
+      }
+    });
+  });
 });
+
+document.getElementById("exportReportsBtn").addEventListener("click", async () => {
+  // Get all visible rows
+  const visibleRows = Array.from(document.querySelectorAll("#reportsTable tbody tr"))
+    .filter(row => row.style.display !== "none");
+
+  if (visibleRows.length === 0) {
+    alert("No reports match the current filters!");
+    return;
+  }
+
+  const reportIds = visibleRows.map(row => row.dataset.id);
+
+  try {
+    const response = await fetch("/export_filtered_reports_excel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report_ids: reportIds })
+    });
+
+    if (!response.ok) throw new Error("Failed to export filtered reports.");
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "filtered_reports.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error(err);
+    alert("Error exporting filtered reports.");
+  }
+});
+
+document.getElementById("resetFiltersBtn").addEventListener("click", () => {
+  // Clear all filter inputs
+  const inputs = ["searchInput", "fromDate", "toDate", "fileTypeFilter", "lineFilter", "userFilter"];
+  inputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  // Show all rows again
+  const rows = document.querySelectorAll("#reportsTable tbody tr");
+  rows.forEach(row => {
+    row.style.display = "";
+  });
+
+  // Optional: Flash feedback
+  const btn = document.getElementById("resetFiltersBtn");
+  btn.disabled = true;
+  btn.textContent = "Reset ✓";
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = "Reset";
+  }, 1000);
+});
+
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>

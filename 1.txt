@@ -363,3 +363,6 @@
 </script>
 </body>
 </html>
+
+
+Before we migrate, should I update my github repo with the updated files? Also does neon have db dashboard to view db data? And while handing over files to user/client should i hand over zip file or repo and how do I hand over db? 

@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 # app.py
 import os
 import io
@@ -8,6 +10,7 @@ from flask import (
     jsonify, send_file
 )
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 from flask_bcrypt import Bcrypt
 import pandas as pd
 
@@ -27,8 +30,15 @@ from openpyxl.utils import get_column_letter
 # ---------------- App config ----------------
 app = Flask(__name__)
 app.secret_key = "secret_key"   # change in production!
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Use Neon DB if available, else fall back to SQLite
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///instance/users.db")
+# Force SSL for Neon
+if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgresql"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"sslmode": "require"}
+    }
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -47,17 +57,32 @@ class Tariff(db.Model):
     dimensions = db.Column(db.String(200))  # optional
     mat_cost = db.Column(db.Float, nullable=False)
 
+class ContainerInfo(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    container_no = db.Column(db.String(50))
+    line = db.Column(db.String(50))
+    size = db.Column(db.String(20))
+    in_date = db.Column(db.String(20))
+    mfg_date = db.Column(db.String(20))
+    gw = db.Column(db.String(20))
+    tw = db.Column(db.String(20))
+    csc = db.Column(db.String(20))
+
+    reports = db.relationship("Report", backref="container_info", lazy=True)
+
 class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), nullable=False)
-    container_no = db.Column(db.String(50), nullable=False)
-    line = db.Column(db.String(50), nullable=False)
-    file_type = db.Column(db.String(10), nullable=False)  # pdf / excel
-    file_path = db.Column(db.String(200), nullable=False)
+    username = db.Column(db.String(100))
+    container_no = db.Column(db.String(50))
+    line = db.Column(db.String(50))
+    file_type = db.Column(db.String(10))
+    file_path = db.Column(db.String(255))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    grand_total = db.Column(db.Float)
+    container_id = db.Column(db.Integer, db.ForeignKey('container_info.id'))  # NEW LINK
 
 with app.app_context():
-    db.create_all()
+     db.create_all()
 
 # ---------------- Utilities ----------------
 def safe_filename(name: str):
@@ -129,34 +154,23 @@ def import_tariffs():
 
 # ---------------- AUTH ----------------
 @app.route("/", methods=["GET", "POST"])
-@app.route("/login_register", methods=["GET", "POST"])
-def login_register():
+def login():
     if request.method == "POST":
-        action = request.form.get("action")
-        username = request.form.get("username").strip()
-        password = request.form.get("password")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
 
-        if action == "register":
-            existing_user = User.query.filter_by(username=username).first()
-            if existing_user:
-                flash("Username already exists!", "error")
-            else:
-                hashed_pw = bcrypt.generate_password_hash(password).decode('utf-8')
-                new_user = User(username=username, password=hashed_pw)
-                db.session.add(new_user)
-                db.session.commit()
-                session["user"] = username
-                flash("Registered successfully! Logged in.", "success")
-                return redirect(url_for("dashboard"))
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            flash("Invalid username or password.", "error")
+            return render_template("login.html")
 
-        elif action == "login":
-            user = User.query.filter_by(username=username).first()
-            if user and bcrypt.check_password_hash(user.password, password):
-                session["user"] = username
-                flash("Login successful!", "success")
-                return redirect(url_for("dashboard"))
-            else:
-                flash("Invalid credentials!", "error")
+        if bcrypt.check_password_hash(user.password, password):
+            session["user"] = username
+            session["user_role"] = user.role
+            flash("Login successful!", "success")
+            return redirect(url_for("dashboard"))
+        else:
+            flash("Invalid username or password.", "error")
 
     return render_template("login.html")
 
@@ -164,7 +178,7 @@ def login_register():
 def logout():
     session.pop("user", None)
     flash("Logged out successfully!", "info")
-    return redirect(url_for("login_register"))
+    return redirect(url_for("login"))
 
 # ---------------- DASHBOARD ----------------
 @app.route("/dashboard")
@@ -204,10 +218,11 @@ def dashboard():
                                report_count=report_count)
 
 # ---------------- ESTIMATION (PAGE 2) ----------------
+# ---------------- ESTIMATION (Page 2) ----------------
 @app.route("/estimation", methods=["GET", "POST"])
 def estimation():
     if "user" not in session:
-        return redirect(url_for("login_register"))
+        return redirect(url_for("login"))
 
     if request.method == "POST":
         container_no = request.form.get("container_no").strip()
@@ -221,27 +236,48 @@ def estimation():
 
         errors = []
 
+        # --- Date validation ---
         try:
             in_date_dt = datetime.strptime(in_date, "%Y-%m-%d")
             mfg_date_dt = datetime.strptime(mfg_date, "%Y-%m-%d")
             if mfg_date_dt >= in_date_dt:
                 errors.append("Manufacturing Date must be earlier than In Date.")
-        except:
+        except Exception:
             errors.append("Invalid date format.")
 
+        # --- Weight validation ---
         try:
             gw_val = float(gw)
             tw_val = float(tw)
             if gw_val <= tw_val:
                 errors.append("Gross Weight must be greater than Tare Weight.")
-        except:
+        except Exception:
             errors.append("GW and TW must be numeric.")
 
+        # --- Handle errors ---
         if errors:
             for e in errors:
                 flash(e, "error")
             return redirect(url_for("estimation"))
 
+        # ✅ Save container info to database
+        container = ContainerInfo(
+            container_no=container_no,
+            line=line,
+            size=size,
+            in_date=in_date,
+            mfg_date=mfg_date,
+            gw=gw,
+            tw=tw,
+            csc=csc
+        )
+        db.session.add(container)
+        db.session.commit()
+
+        # ✅ Save container_id in session for linking reports
+        session["container_id"] = container.id
+
+        # ✅ Save all container data in session (for Page 3 prefill)
         session["estimation_data"] = {
             "container_no": container_no,
             "in_date": in_date,
@@ -252,6 +288,7 @@ def estimation():
             "tw": tw,
             "csc": csc,
         }
+
         flash("Container details saved successfully!", "success")
         return redirect(url_for("page3"))
 
@@ -268,6 +305,46 @@ def page3():
                            username=session["user"],
                            container=session["estimation_data"],
                            categories=categories)
+
+# Add Manual Tariff Entry
+@app.route("/add_manual_tariff", methods=["POST"])
+def add_manual_tariff():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    data = request.get_json() or {}
+    category = data.get("category", "").strip()
+    description = data.get("description", "").strip()
+    dimension = data.get("dimension", "").strip() or None
+    mat_cost = data.get("mat_cost", 0)
+
+    if not category or not description:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Check if same description already exists for this dimension/category
+    existing = db.session.execute(
+        text("""
+            SELECT * FROM tariff
+            WHERE Category = :cat AND Description = :desc
+              AND IFNULL(Dimensions, '') = IFNULL(:dim, '')
+        """),
+        {"cat": category, "desc": description, "dim": dimension}
+    ).fetchone()
+
+    if existing:
+        return jsonify({"message": "Entry already exists in tariff table"}), 200
+
+    # Insert the new tariff entry
+    db.session.execute(
+        text("""
+            INSERT INTO tariff (Category, Description, Dimensions, MAT_COST)
+            VALUES (:cat, :desc, :dim, :mat)
+        """),
+        {"cat": category, "desc": description, "dim": dimension, "mat": mat_cost}
+    )
+    db.session.commit()
+
+    return jsonify({"message": "Manual repair added to tariff table"})
 
 def get_storage_base():
     """
@@ -328,24 +405,41 @@ def preview_report(report_id):
 @app.route("/reports")
 def reports():
     if "user" not in session:
-        return redirect(url_for("login_register"))
+        return redirect(url_for("login"))
 
     username = session["user"]
     user = User.query.filter_by(username=username).first()
 
     if user.role == "admin":
-        reports = Report.query.order_by(Report.timestamp.desc()).all()
-        users = [u.username for u in User.query.all()]
+        reports = Report.query.all()
     else:
-        reports = Report.query.filter_by(username=username).order_by(Report.timestamp.desc()).all()
-        users = []
+        reports = Report.query.filter_by(username=username).all()
 
-    return render_template("reports.html", 
-                           username=username, 
-                           reports=reports, 
-                           total_reports=len(reports),
-                           is_admin=(user.role == "admin"),
-                           users=users)
+    # get distinct line values
+    lines = [l[0] for l in db.session.query(ContainerInfo.line).distinct().all()]
+
+    return render_template("reports.html", reports=reports, lines=lines, is_admin=(user.role == "admin"))
+
+
+@app.route("/delete_report/<int:report_id>", methods=["POST"])
+def delete_report(report_id):
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    username = session["user"]
+    user = User.query.filter_by(username=username).first()
+
+    report = Report.query.get(report_id)
+    if not report:
+        return jsonify({"error": "Report not found"}), 404
+
+    # Only admin or report owner can delete
+    if user.role != "admin" and report.username != username:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    db.session.delete(report)
+    db.session.commit()
+    return jsonify({"message": "Report deleted successfully"})
 
 # @app.route("/preview/<int:report_id>")
 # def preview_report(report_id):
@@ -377,67 +471,172 @@ def reports():
 @app.route("/export_reports_excel")
 def export_reports_excel():
     if "user" not in session:
-        return redirect(url_for("login_register"))
+        return redirect(url_for("login"))
+
+    from datetime import datetime
+    import pandas as pd
+    from io import BytesIO
+    from flask import send_file
 
     username = session["user"]
     user = User.query.filter_by(username=username).first()
 
-    # ✅ Admin sees ALL reports
-    if user.role == "admin":
-        reports = Report.query.order_by(Report.timestamp.desc()).all()
-    else:
-        # ✅ Normal user only their reports
-        reports = Report.query.filter_by(username=username).order_by(Report.timestamp.desc()).all()
+    # --- Collect Filters ---
+    container_no = request.args.get("container_no", "").strip()
+    file_type = request.args.get("file_type", "").strip()
+    line_filter = request.args.get("line", "").strip()
+    user_filter = request.args.get("user", "").strip()
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
 
-    # Create DataFrame
+    # --- Base Query ---
+    query = db.session.query(Report, ContainerInfo).join(
+        ContainerInfo, Report.container_id == ContainerInfo.id
+    )
+
+    if user.role != "admin":
+        query = query.filter(Report.username == username)
+    elif user_filter:
+        query = query.filter(Report.username == user_filter)
+
+    # --- Apply Filters ---
+    if container_no:
+        query = query.filter(ContainerInfo.container_no.ilike(f"%{container_no}%"))
+    if line_filter:
+        query = query.filter(ContainerInfo.line.ilike(f"%{line_filter}%"))
+    if file_type:
+        query = query.filter(Report.file_type.ilike(f"%{file_type}%"))
+    if start_date and end_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            query = query.filter(Report.timestamp.between(start_dt, end_dt))
+        except Exception:
+            pass
+
+    reports = query.all()
     if not reports:
-        flash("No reports to export.", "info")
+        flash("No reports match the filters.", "warning")
         return redirect(url_for("reports"))
 
+    # --- Create Excel Data ---
     data = []
-    for r in reports:
+    for r, c in reports:
         data.append({
-            "Username": r.username,
-            "Container No": r.container_no,
-            "Line": r.line,
-            "File Type": r.file_type.upper(),
-            "Date Generated": r.timestamp.strftime("%Y-%m-%d %H:%M"),
-            "File Path": r.file_path
+            "Container No": c.container_no,
+            "Line": c.line,
+            "Size": c.size,
+            "In Date": c.in_date,
+            "Mfg Date": c.mfg_date,
+            "GW": c.gw,
+            "TW": c.tw,
+            "CSC": c.csc,
+            "Grand Total": getattr(r, "grand_total", ""),
+            "File Type": r.file_type,
+            "Date Generated": r.timestamp.strftime("%Y-%m-%d %H:%M")
         })
 
     df = pd.DataFrame(data)
-
-    # Create Excel in memory
-    output = io.BytesIO()
+    output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Reports")
-        ws = writer.sheets["Reports"]
-
-        # Apply neat styling
+        df.to_excel(writer, index=False, sheet_name="Filtered Reports")
+        ws = writer.sheets["Filtered Reports"]
         from openpyxl.styles import Alignment, Font
         for col in ws.columns:
-            max_length = 0
+            max_len = 0
             col_letter = col[0].column_letter
             for cell in col:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = min(max_length + 4, 40)
-
-        # Header bold
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
         for cell in ws[1]:
             cell.font = Font(bold=True)
 
     output.seek(0)
-
-    filename = f"All_Reports_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx" if user.role == "admin" else f"{username}_Reports.xlsx"
+    filename = f"Filtered_Reports_{username}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
     return send_file(
         output,
-        as_attachment=True,
         download_name=filename,
+        as_attachment=True,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+@app.route("/export_filtered_reports_excel", methods=["POST"])
+def export_filtered_reports_excel():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    from datetime import datetime
+    import pandas as pd
+    from io import BytesIO
+    from flask import send_file
+
+    username = session["user"]
+    user = User.query.filter_by(username=username).first()
+    payload = request.get_json() or {}
+    report_ids = payload.get("report_ids", [])
+
+    if not report_ids:
+        return jsonify({"error": "No report IDs provided"}), 400
+
+    # Query only the reports visible in filtered view
+    reports = db.session.query(Report, ContainerInfo).join(
+        ContainerInfo, Report.container_id == ContainerInfo.id
+    ).filter(Report.id.in_(report_ids)).all()
+
+    if user.role != "admin":
+        reports = [r for r in reports if r[0].username == username]
+
+    if not reports:
+        return jsonify({"error": "No matching reports found"}), 404
+
+    data = []
+    for r, c in reports:
+        data.append({
+            "Container No": c.container_no,
+            "Line": c.line,
+            "Size": c.size,
+            "In Date": c.in_date,
+            "Mfg Date": c.mfg_date,
+            "GW": c.gw,
+            "TW": c.tw,
+            "CSC": c.csc,
+            "Grand Total": getattr(r, "grand_total", ""),
+            "File Type": r.file_type,
+            "Date Generated": r.timestamp.strftime("%Y-%m-%d %H:%M")
+        })
+
+    df = pd.DataFrame(data)
+    output = BytesIO()
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Filtered Reports")
+        ws = writer.sheets["Filtered Reports"]
+
+        from openpyxl.styles import Alignment, Font
+        for col in ws.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+
+    output.seek(0)
+    filename = f"Filtered_Reports_{username}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+    return send_file(
+        output,
+        download_name=filename,
+        as_attachment=True,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 # ---------------- API Endpoints ----------------
 @app.route("/api/descriptions")
 def api_descriptions():
@@ -667,12 +866,30 @@ def export_excel():
     # save + log in DB
     user_dir = ensure_user_dir(username)
     safe_line = safe_filename(line or "LINE")
-    file_path = os.path.join(user_dir, f"{safe_line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    file_path = os.path.join(
+        user_dir,
+        f"{safe_line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    )
     with open(file_path, "wb") as f:
         f.write(output.getvalue())
 
-    report = Report(username=username, container_no=container_no_raw, line=line,
-                    file_type="excel", file_path=file_path)
+    # ✅ get container_id from session (set earlier in /estimation)
+    container_id = session.get("container_id")
+
+    # ✅ get total amount from calculated Excel totals
+    grand_total = float(total_all) if "total_all" in locals() else 0.0
+
+    # ✅ create report entry linked to container
+    report = Report(
+        username=username,
+        container_no=container_no_raw,
+        line=line,
+        grand_total=grand_total,
+        file_type="excel",
+        file_path=file_path,
+        container_id=container_id  # links to ContainerInfo table
+    )
+
     db.session.add(report)
     db.session.commit()
 
@@ -803,14 +1020,44 @@ def export_pdf():
 
     doc.build(elems)
 
-    # Save + log
+    # ---------------- Save + log ----------------
     user_dir = ensure_user_dir(username)
-    file_path = os.path.join(user_dir, f"{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+    file_path = os.path.join(
+        user_dir,
+        f"{line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    )
+
+    # Save the PDF file
     with open(file_path, "wb") as f:
         f.write(buffer.getvalue())
 
-    report = Report(username=username, container_no=container_no_raw, line=line,
-                    file_type="pdf", file_path=file_path)
+    # ✅ Link report to the container and include grand total
+    container_id = session.get("container_id")
+
+    # safely calculate or fallback
+    grand_total = 0.0
+    if "total_all" in locals():
+        try:
+            grand_total = float(total)
+        except Exception:
+            grand_total = 0.0
+    elif "entries" in locals() and entries:
+        for e in entries:
+            try:
+                grand_total += float(e.get("mat_cost", 0)) + float(e.get("lab_cost", 0))
+            except Exception:
+                continue
+
+    report = Report(
+        username=username,
+        container_no=container_no_raw,
+        line=line,
+        grand_total=grand_total,
+        file_type="pdf",
+        file_path=file_path,
+        container_id=container_id
+    )
+
     db.session.add(report)
     db.session.commit()
 
