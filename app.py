@@ -326,7 +326,7 @@ def add_manual_tariff():
         text("""
             SELECT * FROM tariff
             WHERE Category = :cat AND Description = :desc
-              AND IFNULL(Dimensions, '') = IFNULL(:dim, '')
+              AND COALESCE(Dimensions, '') = COALESCE(:dim, '')
         """),
         {"cat": category, "desc": description, "dim": dimension}
     ).fetchone()
