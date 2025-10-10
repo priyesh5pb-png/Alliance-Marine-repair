@@ -71,16 +71,21 @@ class ContainerInfo(db.Model):
 
     reports = db.relationship("Report", backref="container_info", lazy=True)
 
+from sqlalchemy.dialects.postgresql import JSONB
+
 class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100))
-    container_no = db.Column(db.String(50))
-    line = db.Column(db.String(50))
-    file_type = db.Column(db.String(10))
-    file_path = db.Column(db.String(255))
+    username = db.Column(db.String(100), nullable=False)
+    container_no = db.Column(db.String(50), nullable=False)
+    line = db.Column(db.String(50), nullable=True)
+    file_type = db.Column(db.String(20), nullable=False)
+    file_path = db.Column(db.String(300), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    grand_total = db.Column(db.Float)
-    container_id = db.Column(db.Integer, db.ForeignKey('container_info.id'))  # NEW LINK
+    grand_total = db.Column(db.Float, default=0.0)
+    container_id = db.Column(db.Integer, db.ForeignKey("container_info.id"))
+    
+    # 🆕 New field for repair entries
+    entries_json = db.Column(JSONB, nullable=True)
 
 with app.app_context():
      db.create_all()
@@ -402,7 +407,7 @@ def preview_report(report_id):
 
         # Gather related data
         container = ContainerInfo.query.get(report.container_id)
-        entries = json.loads(report.entries_json) if hasattr(report, "entries_json") and report.entries_json else []
+        entries = report.entries_json or []
 
         # Try to load report details for regeneration
         if report.file_type == "pdf":
@@ -771,6 +776,7 @@ def export_excel():
         file_type="excel",
         file_path=file_path,
         container_id=session.get("container_id"),
+        entries_json=entries
     )
     db.session.add(report)
     db.session.commit()
@@ -973,7 +979,8 @@ def export_pdf():
         grand_total=grand_total,
         file_type="pdf",
         file_path=file_path,
-        container_id=session.get("container_id")
+        container_id=session.get("container_id"),
+        entries_json=entries  # 🆕 store repair table entries
     )
     db.session.add(report)
     db.session.commit()

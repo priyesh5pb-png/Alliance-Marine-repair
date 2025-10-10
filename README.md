@@ -46,6 +46,5 @@ This project and its source code are proprietary and confidential.
 Unauthorized copying, distribution, or modification of any part of this software is strictly prohibited without prior written permission from Alliance Marine Groups.
 
 ---
-
-🛠️ Developed by **Priyesh Bhanage**  
+🛠️ Developed by **Priyesh**  
 _Consultant & Developer – Alliance Marine Portal Project_
