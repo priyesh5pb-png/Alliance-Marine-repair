@@ -4,6 +4,7 @@ load_dotenv()
 import os
 import io
 import re
+import json
 from datetime import datetime
 from flask import (
     Flask, render_template, request, redirect, url_for, session, flash,
@@ -381,48 +382,74 @@ from flask import send_from_directory, abort
 
 @app.route("/preview/<int:report_id>")
 def preview_report(report_id):
-    """
-    Serves a report file (PDF/Excel). If missing, auto-regenerates it using
-    existing export logic and database data, preserving full styling.
-    """
-    from io import BytesIO
+    from flask import send_from_directory
+    from sqlalchemy.orm import joinedload
 
-    report = Report.query.get_or_404(report_id)
+    # Fetch the report record
+    report = Report.query.options(joinedload(Report.container)).get_or_404(report_id)
 
-    if not report.file_path:
-        flash("No file attached for this report.", "error")
-        return redirect(url_for("reports"))
+    # Extract file info
+    file_path = report.file_path
+    if isinstance(file_path, (tuple, list)):
+        file_path = file_path[0]
 
-    directory = os.path.dirname(report.file_path)
-    filename = os.path.basename(report.file_path)
+    directory = os.path.dirname(file_path)
+    filename = os.path.basename(file_path)
 
+    # Check if file exists
+    if not os.path.exists(file_path):
+        app.logger.warning(f"[Auto-regen] File missing for report {report.id}...")
+
+        # Gather related data
+        container = ContainerInfo.query.get(report.container_id)
+        entries = json.loads(report.entries_json) if hasattr(report, "entries_json") and report.entries_json else []
+
+        # Try to load report details for regeneration
+        if report.file_type == "pdf":
+            try:
+                app.logger.info(f"[Auto-regen] Regenerating missing PDF report {report.id}...")
+                new_path, _ = export_pdf_internal(
+                    report.username, container, entries, report.line, report.container_no
+                )
+                report.file_path = new_path
+                db.session.commit()
+                app.logger.info(f"[Auto-regen] Rebuilt PDF for {report.container_no}")
+                file_path = new_path
+                directory = os.path.dirname(file_path)
+                filename = os.path.basename(file_path)
+            except Exception as e:
+                app.logger.error(f"[Auto-regen] Failed to regenerate PDF: {e}")
+                flash("Could not regenerate missing PDF file.", "error")
+                return redirect(url_for("reports"))
+
+        elif report.file_type == "excel":
+            try:
+                app.logger.info(f"[Auto-regen] Regenerating missing Excel report {report.id}...")
+                new_path, _ = export_excel_internal(
+                    report.username, container, entries, report.line, report.container_no
+                )
+                report.file_path = new_path
+                db.session.commit()
+                app.logger.info(f"[Auto-regen] Rebuilt Excel for {report.container_no}")
+                file_path = new_path
+                directory = os.path.dirname(file_path)
+                filename = os.path.basename(file_path)
+            except Exception as e:
+                app.logger.error(f"[Auto-regen] Failed to regenerate Excel: {e}")
+                flash("Could not regenerate missing Excel file.", "error")
+                return redirect(url_for("reports"))
+
+    # Security: ensure file within reports folder
     base = os.path.abspath(get_storage_base())
-    file_abspath = os.path.abspath(report.file_path)
+    file_abspath = os.path.abspath(file_path)
     if not file_abspath.startswith(base):
         abort(403)
 
-    # 🟡 Auto-regenerate if missing
     if not os.path.exists(file_abspath):
-        print(f"[Auto-regen] Regenerating missing {report.file_type.upper()} report {report.id}...")
-        container = ContainerInfo.query.get(report.container_id)
-        if not container:
-            flash("Container info not found.", "error")
-            return redirect(url_for("reports"))
+        flash("File not found or could not be regenerated.", "error")
+        return redirect(url_for("reports"))
 
-        # Get entries related to this container/report
-        entries = get_entries_for_report(report.container_no)
-
-        if report.file_type.lower() == "pdf":
-            new_path = regenerate_pdf(report, container, entries)
-        else:
-            new_path = regenerate_excel(report, container, entries)
-
-        report.file_path = new_path
-        db.session.commit()
-        file_abspath = new_path
-        directory = os.path.dirname(file_abspath)
-        filename = os.path.basename(file_abspath)
-
+    app.logger.info(f"[Preview] Serving {filename} from {directory}")
     return send_from_directory(directory, filename)
 
 # ---------------- Reports Page ----------------
@@ -909,7 +936,6 @@ def export_excel_internal(username, container_info, entries, line, container_no)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             ws.column_dimensions[col_letter].width = max(10, min(max_length + 4, 50))
 
-        wb.save(output)
 
     # ---- Save file ----
     output.seek(0)
