@@ -15,12 +15,6 @@ from sqlalchemy import text
 from flask_bcrypt import Bcrypt
 import pandas as pd
 
-# ADMIN DASHBOARD - Manage Database
-from flask_admin import Admin
-from flask_admin.contrib.sqla import ModelView
-from flask_admin.base import AdminIndexView
-from flask import redirect, url_for, session, request
-from yourmodels import db, Tariff, User, ContainerInfo, Report  # adjust import
 
 # PDF libs
 from reportlab.lib.units import mm
