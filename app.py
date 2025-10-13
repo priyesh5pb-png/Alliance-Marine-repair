@@ -15,6 +15,13 @@ from sqlalchemy import text
 from flask_bcrypt import Bcrypt
 import pandas as pd
 
+# ADMIN DASHBOARD - Manage Database
+from flask_admin import Admin
+from flask_admin.contrib.sqla import ModelView
+from flask_admin.base import AdminIndexView
+from flask import redirect, url_for, session, request
+from yourmodels import db, Tariff, User, ContainerInfo, Report  # adjust import
+
 # PDF libs
 from reportlab.lib.units import mm
 from reportlab.lib.pagesizes import landscape, A4
@@ -33,7 +40,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")   # production!
 
 # Use Neon DB if available, else fall back to SQLite
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///instance/users.db")
+app.config["SQLALCHEMY_DATABASE_URL"] = os.getenv("DATABASE_URL", "sqlite:///instance/users.db")
 # Force SSL for Neon
 if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgresql"):
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
