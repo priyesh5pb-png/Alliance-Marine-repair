@@ -34,7 +34,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")   # production!
 
 # Use Neon DB if available, else fall back to SQLite
-app.config["SQLALCHEMY_DATABASE_URL"] = os.getenv("DATABASE_URL", "sqlite:///instance/users.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///instance/users.db")
 # Force SSL for Neon
 if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgresql"):
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
