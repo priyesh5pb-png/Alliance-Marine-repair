@@ -30,7 +30,7 @@ from openpyxl.utils import get_column_letter
 
 # ---------------- App config ----------------
 app = Flask(__name__)
-app.secret_key = "secret_key"   # change in production!
+app.secret_key = os.getenv("SECRET_KEY")   # production!
 
 # Use Neon DB if available, else fall back to SQLite
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///instance/users.db")
