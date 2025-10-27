@@ -1,14 +1,45 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+<nav class="navbar navbar-expand-lg shadow-sm" style="background-color: #0C1B5E;">
   <div class="container-fluid">
-    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">Alliance Marine</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+    <!-- Brand / Logo -->
+    <a class="navbar-brand d-flex align-items-center fw-bold text-white" href="{{ url_for('dashboard') }}">
+      <!-- You can add your logo later -->
+      <!-- <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Alliance Groups Logo" height="34" class="me-2"> -->
+      Alliance Groups
+    </a>
+
+    <!-- Mobile Toggle -->
+    <button class="navbar-toggler text-white" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
       <span class="navbar-toggler-icon"></span>
     </button>
+
+    <!-- Nav Links -->
     <div class="collapse navbar-collapse" id="navbarNav">
       <ul class="navbar-nav ms-auto">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('reports') }}">Reports</a></li>
-        <li class="nav-item"><a class="nav-link text-danger" href="{{ url_for('logout') }}">Logout</a></li>
+        <li class="nav-item">
+          <a class="nav-link text-white {% if request.endpoint == 'dashboard' %}active-nav{% endif %}" href="{{ url_for('dashboard') }}">
+            Dashboard
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link text-white {% if request.endpoint == 'reports' %}active-nav{% endif %}" href="{{ url_for('reports') }}">
+            Reports
+          </a>
+        </li>
+
+        {% if session.get("user_role") == "admin" %}
+        <li class="nav-item">
+          <a class="nav-link text-white {% if request.endpoint == 'admin_panel' %}active-nav{% endif %}" href="/admin_panel">
+            Panel
+          </a>
+        </li>
+        {% endif %}
+
+        <li class="nav-item">
+          <a class="nav-link text-danger fw-semibold" href="{{ url_for('logout') }}">
+            Logout
+          </a>
+        </li>
       </ul>
     </div>
   </div>

@@ -3,53 +3,189 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Alliance Marine - Login/Register</title>
+  <title>Alliance Marine - Login</title>
+
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+  <style>
+    body {
+      background-color: #f8f9fa;
+      font-family: "Poppins", sans-serif;
+      color: #212529;
+    }
+
+    .login-card {
+      background-color: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      width: 360px;
+      padding: 2rem;
+      transition: transform 0.2s ease;
+    }
+
+    .login-card:hover {
+      transform: translateY(-3px);
+    }
+
+    .login-logo {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #e9ecef;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      margin: 0 auto 1rem;
+    }
+
+    .login-logo i {
+      font-size: 1.8rem;
+      color: #007bff;
+    }
+
+    h4 {
+      text-align: center;
+      font-weight: 600;
+      color: #212529;
+      margin-bottom: 0.25rem;
+    }
+
+    .subtext {
+      text-align: center;
+      color: #6c757d;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }
+
+    .form-control {
+      background-color: #fff;
+      border: 1px solid #ced4da;
+      color: #212529;
+      border-radius: 8px;
+    }
+
+    .form-control:focus {
+      border-color: #007bff;
+      box-shadow: none;
+    }
+
+    .btn-login {
+      width: 100%;
+      background-color: #007bff;
+      border: none;
+      color: white;
+      font-weight: 500;
+      transition: background-color 0.3s;
+      border-radius: 8px;
+    }
+
+    .btn-login:hover {
+      background-color: #0062cc;
+    }
+
+    .icon-input {
+      position: relative;
+    }
+
+    .icon-input i {
+      position: absolute;
+      top: 50%;
+      left: 12px;
+      transform: translateY(-50%);
+      color: #6c757d;
+    }
+
+    .icon-input input {
+      padding-left: 40px;
+    }
+
+    /* Show/hide password icon */
+    .toggle-password {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      transform: translateY(-50%);
+      cursor: pointer;
+      color: #6c757d;
+    }
+
+    .toggle-password:hover {
+      color: #007bff;
+    }
+
+    .toast-container {
+      z-index: 9999;
+    }
+  </style>
 </head>
-<body class="bg-light">
 
-<div class="container d-flex justify-content-center align-items-center vh-100">
-  <div class="card shadow p-4" style="width: 400px;">
-    <h3 class="text-center">Alliance Marine Terminal</h3>
-    <form method="POST">
-      <div class="mb-3">
-        <label class="form-label">Username</label>
-        <input type="text" name="username" class="form-control" required>
+<body>
+  <div class="d-flex justify-content-center align-items-center vh-100">
+    <div class="login-card">
+      <div class="login-logo">
+        <i class="bi bi-circle-half"></i>
       </div>
-      <div class="mb-3">
-        <label class="form-label">Password</label>
-        <input type="password" name="password" class="form-control" required>
-      </div>
-      <div class="d-flex justify-content-between">
-        <button type="submit" name="action" value="login" class="btn btn-primary">Login</button>
-      </div>
-    </form>
-  </div>
-</div>
+      <h4>Alliance Marine Terminal</h4>
+      <p class="subtext">Login to continue</p>
 
-<!-- Toast -->
-<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for category, message in messages %}
-        <div class="toast align-items-center text-white bg-{{ 'success' if category=='success' else 'danger' if category=='error' else 'info' }} border-0 show" role="alert">
-          <div class="d-flex">
-            <div class="toast-body">{{ message }}</div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-          </div>
+      <form method="POST">
+        <!-- Username -->
+        <div class="mb-3 icon-input">
+          <i class="bi bi-person"></i>
+          <input type="text" name="username" class="form-control" placeholder="Username" required>
         </div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
-</div>
+
+        <!-- Password -->
+        <div class="mb-4 icon-input position-relative">
+          <i class="bi bi-lock"></i>
+          <input type="password" name="password" id="passwordField" class="form-control pe-5" placeholder="Password" required>
+          <button type="button" id="togglePassword" class="btn btn-link position-absolute top-50 end-0 translate-middle-y pe-3" style="color: #6c757d; text-decoration: none;">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+
+        <button type="submit" name="action" value="login" class="btn btn-login">Login</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="position-fixed bottom-0 end-0 p-3 toast-container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="toast align-items-center text-white bg-{{ 'success' if category=='success' else 'danger' if category=='error' else 'info' }} border-0 show" role="alert">
+            <div class="d-flex">
+              <div class="toast-body">{{ message }}</div>
+              <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
-  // Auto show Bootstrap toast
-  document.querySelectorAll('.toast').forEach(toastEl => {
-    new bootstrap.Toast(toastEl, { delay: 3000 }).show();
-  });
+    // Toast auto-display
+    document.querySelectorAll('.toast').forEach(toastEl => {
+      new bootstrap.Toast(toastEl, { delay: 3000 }).show();
+    });
+
+    // Show/Hide Password Toggle
+    const toggleButton = document.getElementById("togglePassword");
+    const passwordField = document.getElementById("passwordField");
+    const eyeIcon = toggleButton.querySelector("i");
+
+    toggleButton.addEventListener("click", () => {
+      const isHidden = passwordField.type === "password";
+      passwordField.type = isHidden ? "text" : "password";
+      eyeIcon.classList.toggle("bi-eye");
+      eyeIcon.classList.toggle("bi-eye-slash");
+      toggleButton.setAttribute("title", isHidden ? "Hide Password" : "Show Password");
+    });
 </script>
 
 </body>

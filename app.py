@@ -14,7 +14,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from flask_bcrypt import Bcrypt
 import pandas as pd
-
+from flask_admin import Admin
 
 # PDF libs
 from reportlab.lib.units import mm
@@ -22,8 +22,9 @@ from reportlab.lib.pagesizes import landscape, A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.styles import ParagraphStyle
+from io import BytesIO
 
 # Excel styling
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -175,7 +176,10 @@ def login():
             session["user"] = username
             session["user_role"] = user.role
             flash("Login successful!", "success")
-            return redirect(url_for("dashboard"))
+            if user.role == "admin":
+                return redirect("dashboard")
+            else:
+                return redirect(url_for("dashboard"))
         else:
             flash("Invalid username or password.", "error")
 
@@ -191,7 +195,7 @@ def logout():
 @app.route("/dashboard")
 def dashboard():
     if "user" not in session:
-        return redirect(url_for("login_register"))
+        return redirect(url_for("login"))
 
     username = session["user"]
     user = User.query.filter_by(username=username).first()
@@ -234,7 +238,9 @@ def estimation():
     if request.method == "POST":
         container_no = request.form.get("container_no").strip()
         in_date = request.form.get("in_date")
-        mfg_date = request.form.get("mfg_date")
+        # ---- Normalize Manufacturing Date (supports YYYY-MM, YYYY-MM-DD) ----
+        mfg_date_raw = request.form.get("mfg_date", "").strip()
+        mfg_date = ""
         line = request.form.get("line").strip()
         size = request.form.get("size").strip()
         gw = request.form.get("gw")
@@ -245,12 +251,32 @@ def estimation():
 
         # --- Date validation ---
         try:
-            in_date_dt = datetime.strptime(in_date, "%Y-%m-%d")
-            mfg_date_dt = datetime.strptime(mfg_date, "%Y-%m-%d")
+            if len(mfg_date_raw) == 7:  # yyyy-mm from <input type="month">
+                mfg_date = datetime.strptime(mfg_date_raw, "%Y-%m").strftime("%m/%Y")
+            elif len(mfg_date_raw) == 10:  # yyyy-mm-dd from <input type="date">
+                mfg_date = datetime.strptime(mfg_date_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+            else:
+                mfg_date = mfg_date_raw
+        except Exception:
+            mfg_date = mfg_date_raw or ""
+
+        # ---- Validate In Date (always yyyy-mm-dd) ----
+        in_date_raw = request.form.get("in_date", "").strip()
+        errors = []
+
+        try:
+            in_date_dt = datetime.strptime(in_date_raw, "%Y-%m-%d")
+            # For mfg_date, if only month/year, assume 1st of that month
+            if len(mfg_date_raw) == 7:
+                mfg_date_dt = datetime.strptime(mfg_date_raw + "-01", "%Y-%m-%d")
+            else:
+                mfg_date_dt = datetime.strptime(mfg_date_raw, "%Y-%m-%d")
             if mfg_date_dt >= in_date_dt:
                 errors.append("Manufacturing Date must be earlier than In Date.")
         except Exception:
-            errors.append("Invalid date format.")
+            # Only flag invalid In Date, not month/year case
+            if len(mfg_date_raw) != 7:
+                errors.append("Invalid date format.")
 
         # --- Weight validation ---
         try:
@@ -351,7 +377,7 @@ def add_manual_tariff():
     )
     db.session.commit()
 
-    return jsonify({"message": "Manual repair added to tariff table"})
+    return jsonify({"message": "Manual repair added to tariff table"}), 200
 
 def get_storage_base():
     """
@@ -468,9 +494,13 @@ def reports():
     user = User.query.filter_by(username=username).first()
 
     if user.role == "admin":
-        reports = Report.query.all()
+        reports = Report.query.order_by(Report.timestamp.desc()).all()
     else:
-        reports = Report.query.filter_by(username=username).all()
+        reports = (
+            Report.query.filter_by(username=username)
+            .order_by(Report.timestamp.desc())
+            .all()
+        )
 
     # get distinct line values
     lines = [l[0] for l in db.session.query(ContainerInfo.line).distinct().all()]
@@ -759,6 +789,20 @@ def export_excel():
     container_info = payload.get("container") if isinstance(payload, dict) else {}
     if not container_info:
         container_info = session.get("estimation_data", {})
+    
+    # 🧹 STEP 1: Remove any unwanted "Grand Total" or "Totals" rows from frontend table
+    cleaned_entries = []
+    for e in entries:
+        cat = str(e.get("category", "")).strip().lower()
+        # Filter out frontend totals
+        if cat not in ["total", "totals", "grand total"]:
+            cleaned_entries.append(e)
+
+    # 🧮 STEP 2: Convert to DataFrame safely
+    if cleaned_entries:
+        df = pd.DataFrame(cleaned_entries)
+    else:
+        df = pd.DataFrame(columns=["category", "description", "dimension", "mat_cost", "man_hrs", "lab_cost", "total"])
 
     username = session.get("user", "anonymous")
     container_no_raw = container_info.get("container_no") or "estimation"
@@ -821,25 +865,15 @@ def export_excel_internal(username, container_info, entries, line, container_no)
         row["total"] = round(float(row.get("total", 0) or 0), 2)
 
     df = pd.DataFrame(entries)
+
+    # ✅ Remove any accidental "total" or "grand total" rows just in case
+    df = df[~df['category'].astype(str).str.contains('total', case=False, na=False)]
+
+    # Compute grand totals (for separate table)
     total_mat = df["mat_cost"].sum() if not df.empty else 0.0
     total_lab = df["lab_cost"].sum() if not df.empty else 0.0
     total_all = df["total"].sum() if not df.empty else 0.0
 
-    totals_row = {
-        "sr": "",
-        "category": "GRAND TOTAL",
-        "description": "",
-        "dimension": "",
-        "mat_cost": total_mat,
-        "man_hrs": "",
-        "lab_cost": total_lab,
-        "total": total_all,
-    }
-
-    if not df.empty:
-        df = pd.concat([df, pd.DataFrame([totals_row])], ignore_index=True)
-    else:
-        df = pd.DataFrame([totals_row])
 
     # ---- Container Info Table ----
     container_headers = ["Container No", "In Date", "Mfg Date", "Line", "Size", "GW", "TW", "CSC"]
@@ -868,18 +902,18 @@ def export_excel_internal(username, container_info, entries, line, container_no)
         header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 
         # ---- Header ----
-        ws.merge_cells("A1:H1")
-        ws["A1"] = "ALLIANCE MARINE TERMINAL"
-        ws["A1"].font = Font(bold=True, size=16)
-        ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-
         ws.merge_cells("A2:H2")
-        ws["A2"] = "At.Post-Jasai, Tel-Uran, Dist- Raigad Opp Indian Oil Petrol Pump, Navi Mumbai Pin-400 702"
-        ws["A2"].font = Font(bold=True, size=11)
+        ws["A2"] = "ALLIANCE MARINE TERMINAL"
+        ws["A2"].font = Font(bold=True, size=16)
         ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
 
+        ws.merge_cells("A3:H3")
+        ws["A3"] = "At.Post-Jasai, Tel-Uran, Dist- Raigad Opp Indian Oil Petrol Pump, Navi Mumbai Pin-400 702"
+        ws["A3"].font = Font(bold=True, size=11)
+        ws["A3"].alignment = Alignment(horizontal="center", vertical="center")
+
         # ---- Container Info Table ----
-        start_row = 4
+        start_row = 5
         for col_num, header in enumerate(container_headers, 1):
             cell = ws.cell(row=start_row, column=col_num, value=header)
             cell.font = Font(bold=True)
@@ -890,6 +924,8 @@ def export_excel_internal(username, container_info, entries, line, container_no)
         for row_idx, row_data in enumerate(container_data, start=start_row + 1):
             for col_num, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_idx, column=col_num, value=value)
+                if "container_no" in header.lower() or col_num == 1:  # assuming first column or name match
+                    cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.border = border
 
@@ -920,14 +956,56 @@ def export_excel_internal(username, container_info, entries, line, container_no)
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                     cell.border = border
 
-        # ---- Approved Amount ----
-        approved_row = repair_start + len(df) + 3
-        ws.merge_cells(f"A{approved_row}:G{approved_row}")
+       # ---- Grand Total Table ----
+        grand_row = repair_start + len(df) + 2
+
+        ws["B" + str(grand_row)] = "GRAND TOTAL"
+        ws["B" + str(grand_row)].font = Font(bold=True)
+        ws["B" + str(grand_row)].alignment = Alignment(horizontal="right", vertical="center")
+
+        # Calculate totals
+        mat_total = df["mat_cost"].sum() if "mat_cost" in df.columns else 0
+        lab_total = df["lab_cost"].sum() if "lab_cost" in df.columns else 0
+        grand_total = df["total"].sum() if "total" in df.columns else mat_total + lab_total
+
+        ws[f"E{grand_row}"] = mat_total
+        ws[f"G{grand_row}"] = lab_total
+        ws[f"H{grand_row}"] = grand_total
+
+        for col in ["E", "G", "H"]:
+            ws[f"{col}{grand_row}"].font = Font(bold=True)
+            ws[f"{col}{grand_row}"].alignment = Alignment(horizontal="center", vertical="center")
+
+        # Apply borders to grand total table row
+        for col_idx in range(1, 9):
+            ws.cell(row=grand_row, column=col_idx).border = border
+
+        # ---- Approved Amount + Date Generated (combined 2-row table) ----
+        approved_row = grand_row + 3
+        date_row = approved_row + 1
+
+        # Row 1: Approved Amount
         ws[f"A{approved_row}"] = "Approved Amount"
         ws[f"A{approved_row}"].font = Font(bold=True)
         ws[f"A{approved_row}"].alignment = Alignment(horizontal="right", vertical="center")
-        ws[f"H{approved_row}"].alignment = Alignment(horizontal="center", vertical="center")
-        ws[f"H{approved_row}"].border = border
+
+        ws[f"B{approved_row}"] = ""  # Leave empty for manual input
+        ws[f"B{approved_row}"].font = Font(bold=True)
+        ws[f"B{approved_row}"].alignment = Alignment(horizontal="center", vertical="center")
+
+        # Row 2: Date Generated
+        ws[f"A{date_row}"] = "Date Generated"
+        ws[f"A{date_row}"].font = Font(bold=True)
+        ws[f"A{date_row}"].alignment = Alignment(horizontal="right", vertical="center")
+
+        ws[f"B{date_row}"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws[f"B{date_row}"].font = Font(bold=True)
+        ws[f"B{date_row}"].alignment = Alignment(horizontal="center", vertical="center")
+
+        # Apply borders to both rows
+        for r in [approved_row, date_row]:
+            ws[f"A{r}"].border = border
+            ws[f"B{r}"].border = border
 
         # ---- Auto-fit ----
         for col_idx in range(1, ws.max_column + 1):
@@ -942,7 +1020,6 @@ def export_excel_internal(username, container_info, entries, line, container_no)
                         max_length = vlen
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             ws.column_dimensions[col_letter].width = max(10, min(max_length + 4, 50))
-
 
     # ---- Save file ----
     output.seek(0)
@@ -1011,6 +1088,7 @@ def export_pdf_internal(username, container_info, entries, line, container_no):
         
     styles = getSampleStyleSheet()
     centered = ParagraphStyle(name="centered", parent=styles['Normal'], alignment=TA_CENTER)
+    right = ParagraphStyle(name="right", parent=styles["Normal"], alignment=TA_RIGHT)
 
     # Container info table
     info_headers = ["Container No", "In Date", "Mfg Date", "Line", "Size", "GW", "TW", "CSC"]
@@ -1100,15 +1178,19 @@ def export_pdf_internal(username, container_info, entries, line, container_no):
         ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
     ]))
     elems.append(tbl)
-
-    # Approved Amount
     elems.append(Spacer(1, 24))
-    approved_tbl = Table([[Paragraph("<b>Approved Amount</b>", styles['Normal']), ""]],
-                         colWidths=[usable_width * 0.3, usable_width * 0.7], hAlign='CENTER')
+
+    # ---- Approved Amount + Date Generated ----
+    approved_data = [
+        ["Approved Amount", ""],
+        ["Date Generated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+    ]
+    approved_tbl = Table(approved_data, colWidths=[200, 250], hAlign="CENTER")
     approved_tbl.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     elems.append(approved_tbl)
 
@@ -1177,6 +1259,46 @@ def get_entries_for_report(container_no):
         })
     return entries
 
+# ---------- New helper APIs ----------
+
+@app.route("/api/lines")
+def api_lines():
+    """Return distinct client lines for dropdown."""
+    lines = [l[0] for l in db.session.query(ContainerInfo.line).distinct().all() if l[0]]
+    lines.sort()
+    return jsonify(lines)
+
+
+@app.route("/api/container_info")
+def api_container_info():
+    """Return stored container details by container_no."""
+    container_no = request.args.get("container_no", "").strip()
+    if not container_no:
+        return jsonify({"error": "Missing container_no"}), 400
+
+    record = ContainerInfo.query.filter_by(container_no=container_no).order_by(ContainerInfo.id.desc()).first()
+    if not record:
+        return jsonify({"found": False})
+
+    data = {
+        "found": True,
+        "line": record.line,
+        "mfg_date": record.mfg_date,
+        "size": record.size,
+        "gw": record.gw,
+        "tw": record.tw,
+        "csc": record.csc,
+    }
+    return jsonify(data)
+
+# --- Admin panel setup ---
+from admin import init_admin
+
+init_admin(app, db, User, Tariff, ContainerInfo, Report)
+print("✅ Flask-Admin successfully initialized at /admin_panel")
+
 # ---------------- Run ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
+

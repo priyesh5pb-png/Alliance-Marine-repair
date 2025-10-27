@@ -5,6 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Estimation - Alliance Marine</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* Align small text neatly under input */
+    small.text-muted {
+      font-size: 0.85rem;
+      line-height: 1.2;
+    }
+
+    /* Autofilled highlight */
+    .autofilled {
+      background-color: #eaffea !important;
+      border-color: #6cc070 !important;
+      transition: background-color 0.8s ease;
+    }
+
+    /* Fade-in/out animation for Clear Autofill button */
+    #clearAutofill {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    #clearAutofill.show {
+      opacity: 1;
+    }
+  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 </head>
 <body class="bg-light">
 
@@ -14,18 +39,21 @@
 <div class="container mt-5">
   <div class="card shadow p-4">
     <h3 class="text-center text-primary mb-4">Container Details</h3>
+    <p class="text-center text-muted mb-4 fst-italic small">
+    Existing containers will autofill their details automatically when you enter a container number.
+    </p>
     <form method="POST">
-      <div class="row mb-3">
+      <div class="row mb-3 align-items-end">
         <div class="col-md-6">
           <label class="form-label">Container No</label>
-          <input type="text" name="container_no" class="form-control" required>
+          <input type="text" name="container_no" id="containerNo" class="form-control" required>
         </div>
         <div class="col-md-6">
-          <label class="form-label">Line</label>
-          <input type="text" name="line" class="form-control" required>
+          <label class="form-label">Line (Client)</label>
+          <input list="lineOptions" name="line" id="lineInput" class="form-control" placeholder="Select or type..." required>
+          <datalist id="lineOptions"></datalist>
         </div>
       </div>
-
       <div class="row mb-3">
         <div class="col-md-6">
           <label class="form-label">In Date</label>
@@ -33,7 +61,7 @@
         </div>
         <div class="col-md-6">
           <label class="form-label">Manufacturing Date</label>
-          <input type="date" name="mfg_date" class="form-control" required>
+          <input type="month" name="mfg_date" id="mfg_date" class="form-control" required>
         </div>
       </div>
 
@@ -57,8 +85,14 @@
         <input type="text" name="csc" class="form-control" required>
       </div>
 
-      <div class="text-end">
-        <button type="submit" class="btn btn-primary">Next →</button>
+      <div class="d-flex justify-content-between align-items-center mt-4">
+        <div></div>
+        <div class="d-flex gap-2">
+          <button type="button" id="clearAutofill" class="btn btn-outline-secondary" style="display: none;">
+            Clear Autofill
+          </button>
+          <button type="submit" class="btn btn-primary">Next →</button>
+        </div>
       </div>
     </form>
   </div>
@@ -85,6 +119,97 @@
   document.querySelectorAll('.toast').forEach(toastEl => {
     new bootstrap.Toast(toastEl, { delay: 3000 }).show();
   });
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const lineInput = document.getElementById("lineInput");
+  const datalist = document.getElementById("lineOptions");
+  const containerInput = document.getElementById("containerNo");
+  const clearBtn = document.getElementById("clearAutofill");
+
+  // 🧩 Fetch existing lines for dropdown
+  try {
+    const res = await fetch("/api/lines");
+    if (res.ok) {
+      const lines = await res.json();
+      lines.forEach(line => {
+        const opt = document.createElement("option");
+        opt.value = line;
+        datalist.appendChild(opt);
+      });
+    }
+  } catch (err) {
+    console.warn("Failed to load line list:", err);
+  }
+
+  let typingTimer;
+  const debounceDelay = 400; // ms delay before triggering autofill after typing stops
+
+  // 🧩 Live autofill as user types (debounced)
+  containerInput.addEventListener("input", () => {
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(async () => {
+      const containerNo = containerInput.value.trim();
+      if (!containerNo || containerNo.length < 5) {
+        hideClearButton();
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/container_info?container_no=${encodeURIComponent(containerNo)}`);
+        const data = await res.json();
+
+        if (data.found) {
+          // Fill form fields
+          document.getElementById("lineInput").value = data.line || "";
+          document.querySelector("input[name='mfg_date']").value = data.mfg_date || "";
+          document.querySelector("input[name='size']").value = data.size || "";
+          document.querySelector("input[name='gw']").value = data.gw || "";
+          document.querySelector("input[name='tw']").value = data.tw || "";
+          document.querySelector("input[name='csc']").value = data.csc || "";
+
+          // Highlight autofilled fields
+          ["lineInput", "mfg_date", "size", "gw", "tw", "csc"].forEach(id => {
+            const el = document.getElementById(id) || document.querySelector(`[name='${id}']`);
+            if (el) el.classList.add("autofilled");
+          });
+
+          showClearButton();
+        } else {
+          hideClearButton();
+          document.querySelectorAll(".autofilled").forEach(el => el.classList.remove("autofilled"));
+        }
+      } catch (err) {
+        console.error("Autofill failed:", err);
+        hideClearButton();
+      }
+    }, debounceDelay);
+  });
+
+  // 🧩 Clear Autofill button handler
+  clearBtn.addEventListener("click", () => {
+    ["lineInput", "mfg_date", "size", "gw", "tw", "csc"].forEach(id => {
+      const el = document.getElementById(id) || document.querySelector(`[name='${id}']`);
+      if (el) {
+        el.value = "";
+        el.classList.remove("autofilled");
+      }
+    });
+    hideClearButton();
+  });
+
+  // Helper: fade-in/out button
+  function showClearButton() {
+    clearBtn.style.display = "block";
+    setTimeout(() => (clearBtn.style.opacity = "1"), 50);
+  }
+
+  function hideClearButton() {
+    clearBtn.style.opacity = "0";
+    setTimeout(() => (clearBtn.style.display = "none"), 300);
+  }
+});
 </script>
 
 </body>
