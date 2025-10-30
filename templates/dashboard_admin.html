@@ -1,115 +1,264 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Dashboard - Alliance Marine Portal</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" />
+  <meta charset="utf-8">
+  <title>Admin Dashboard - Alliance Groups</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+  <style>
+    .main-wrap { display:flex; }
+    aside { min-width:220px; }
+    .content { flex:1; padding:24px; }
+    .summary-card { cursor:pointer; transition: transform .12s ease; }
+    .summary-card:hover { transform: translateY(-4px); }
+    .kpi-card .value { font-size:1.6rem; font-weight:700; }
+    .preview-table tr td { vertical-align:middle; }
+  </style>
 </head>
+<body class="d-flex flex-column min-vh-100">
 
-<body class="bg-light">
-
-  <!-- Navbar -->
   {% include 'navbar.html' %}
 
-  <div class="container py-5">
-    <div class="text-center mb-5">
-      <h2 class="fw-bold">Admin Dashboard</h2>
-      <p class="text-muted">Monitor reports, manage users, and track key performance metrics.</p>
-    </div>
+   <div class="main-wrap d-flex">
+    {% include 'sidebar.html' %}
 
-    <!-- Summary Cards -->
-    <div class="row g-4 justify-content-center mb-4">
-      <div class="col-md-4 col-sm-6">
-        <div class="card shadow-sm border-0 h-100">
-          <div class="card-body text-center">
-            <div class="mb-3 text-primary">
-              <i class="bi bi-collection" style="font-size: 2.5rem;"></i>
-            </div>
-            <h5 class="card-title fw-bold">Total Reports</h5>
-            <h2 class="text-primary fw-bold">{{ total_reports }}</h2>
+    <div class="content flex-grow-1 p-4">
+      <div class="container-fluid">
+        <div class="text-center mb-5">
+          <div>
+            <h2 class="fw-bold">Dashboard</h2>
+            <p class="text-muted">Monitor reports, manage users, and track key metrics.</p>
           </div>
         </div>
-      </div>
 
-      <div class="col-md-4 col-sm-6">
-        <div class="card shadow-sm border-0 h-100">
-          <div class="card-body text-center">
-            <div class="mb-3 text-success">
-              <i class="bi bi-calendar-check" style="font-size: 2.5rem;"></i>
+        <!-- Top big summary cards -->
+        <div class="row g-4 mb-4">
+          <div class="col-lg-6">
+            <div class="card summary-card h-100" onclick="window.location='{{ url_for('reports') }}'">
+              <div class="card-body text-center">
+                <i class="bi bi-collection text-primary" style="font-size:2.2rem;"></i>
+                <h5 class="mt-3">Total Reports</h5>
+                <div class="h2 text-primary fw-bold">{{ total_reports }}</div>
+              </div>
             </div>
-            <h5 class="card-title fw-bold">Reports This Month</h5>
-            <h2 class="text-success fw-bold">{{ reports_this_month }}</h2>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Quick Actions -->
-    <div class="row justify-content-center mb-5">
-      <div class="col-md-8">
-        <div class="card shadow-sm border-0">
-          <div class="card-body text-center">
-            <h5 class="fw-bold mb-4">Quick Actions</h5>
-            <div class="d-flex flex-wrap justify-content-center gap-3">
-              <a href="{{ url_for('estimation') }}" class="btn btn-primary">
-                <i class="bi bi-pencil-square me-2"></i>New Estimation
-              </a>
-              <a href="{{ url_for('reports') }}" class="btn btn-success">
-                <i class="bi bi-bar-chart-line me-2"></i>View Reports
-              </a>
+          <div class="col-lg-6">
+            <div class="card summary-card h-100" onclick="window.location='{{ url_for('reports') }}?month={{ current_month }}'">
+              <div class="card-body text-center">
+                <i class="bi bi-calendar-check text-success" style="font-size:2.2rem;"></i>
+                <h5 class="mt-3">Reports This Month</h5>
+                <div class="h2 text-success fw-bold">{{ reports_this_month }}</div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Chart Section -->
-    <div class="row justify-content-center">
-      <div class="col-md-8">
-        <div class="card shadow-sm border-0">
+        <!-- KPI row (4 cards) -->
+        <div class="row g-3 mb-4">
+          <div class="col-md-3">
+            <div class="card p-3">
+              <div class="text-muted">Containers Repaired (Last 12 months)</div>
+              <canvas id="containersByMonth" style="height:140px;"></canvas>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="card p-3">
+              <div class="text-muted">Containers Repaired (This month)</div>
+              <canvas id="containersByDay" style="height:140px;"></canvas>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="card p-3">
+              <div class="text-muted">Reports by Line (All time)</div>
+              <canvas id="byLineChartAll" style="height:160px;"></canvas>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="card p-3">
+              <div class="text-muted">Reports by Line (This month)</div>
+              <canvas id="byLineChartMonth" style="height:160px;"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview Table: latest 5 reports -->
+        <div class="card mb-4">
           <div class="card-body">
-            <h5 class="fw-bold text-center mb-3">Reports by Line</h5>
-            <canvas id="lineChart" style="height: 320px;"></canvas>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h5 class="mb-0">Latest Reports</h5>
+              <a href="{{ url_for('reports') }}" class="btn btn-sm btn-outline-primary">View all</a>
+            </div>
+
+            <div class="table-responsive">
+              <table class="table preview-table mb-0">
+                <thead>
+                  <tr>
+                    <th>Container</th>
+                    <th>Line</th>
+                    <th>In Date</th>
+                    <th>Total</th>
+                    <th>Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in latest_reports %}
+                  <tr>
+                    <td>{{ loop.index }}</td>
+                    <td><strong>{{ r.container_no }}</strong></td>
+                    <td>{{ r.line or '-' }}</td>
+                    <td>{{ (r.grand_total or 0) | round(2) }}</td>
+                    <td>{{ (r.timestamp or r.created_at).strftime('%Y-%m-%d %H:%M') if (r.timestamp or r.created_at) else '-' }}</td>
+                    <td>
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('preview_report', report_id=r.id) }}">Preview</a>
+                    </td>
+                    <td>
+                      <form method="post" action="{{ url_for('delete_report', report_id=r.id) }}" onsubmit="return confirm('Delete report?');">
+                        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="7" class="text-center text-muted">No reports yet</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+
       </div>
     </div>
   </div>
 
-  <!-- Chart.js Logic -->
-  <div id="lineDataDiv" data-line='{{ by_line|tojson | safe }}'></div>
-  <script>
-    const lineData = JSON.parse(document.getElementById("lineDataDiv").getAttribute("data-line") || "[]");
-    const ctx = document.getElementById("lineChart");
-
-    new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: lineData.map(r => r[0] || "Unknown"),
-        datasets: [{
-          label: "Reports",
-          data: lineData.map(r => r[1]),
-          backgroundColor: "rgba(54, 162, 235, 0.6)",
-          borderRadius: 6
-        }]
-      },
-      options: {
-        scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1 } },
-          x: { grid: { display: false } }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: true }
-        }
-      }
-    });
-  </script>
+  <!-- Chart data as JSON -->
+  <div id="chart-data"
+     data-all='{{ (by_line_all|default([]))|tojson|safe }}'
+     data-month='{{ (by_line_month|default([]))|tojson|safe }}'
+     data-containers-month='{{ (containers_by_month|default([]))|tojson|safe }}'
+     data-containers-day='{{ (containers_by_day|default([]))|tojson|safe }}'></div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const raw = document.getElementById('chart-data');
+    const all = JSON.parse(raw.getAttribute('data-all') || '[]');
+    const month = JSON.parse(raw.getAttribute('data-month') || '[]');
+
+    function makeBar(ctx, data, color){
+      return new Chart(ctx, {
+        type:'bar',
+        data:{
+          labels: data.map(d=>d[0]),
+          datasets:[{data: data.map(d=>d[1]), backgroundColor: color, borderRadius:6}]
+        },
+        options:{
+          plugins:{legend:{display:false}},
+          onClick: (evt, items) => {
+            if(items.length){
+              const idx = items[0].index;
+              const line = data[idx][0];
+              window.location = "{{ url_for('reports') }}?line=" + encodeURIComponent(line);
+            }
+          },
+          scales:{y:{beginAtZero:true, ticks:{stepSize:1}}, x:{grid:{display:false}}}
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const ctxAll = document.getElementById('byLineChartAll').getContext('2d');
+      const ctxMonth = document.getElementById('byLineChartMonth').getContext('2d');
+      makeBar(ctxAll, all, 'rgba(54,162,235,0.6)');
+      makeBar(ctxMonth, month, 'rgba(75,192,192,0.6)');
+    });
+
+        // read additional datasets
+    const containersMonth = JSON.parse(raw.getAttribute('data-containers-month') || '[]');
+    const containersDay = JSON.parse(raw.getAttribute('data-containers-day') || '[]');
+
+    // helper to draw small line chart
+    function makeLine(ctx, labels, data, color){
+      return new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{ data, fill:true, backgroundColor: color, borderColor: color.replace('0.6','1'), tension:0.25 }]},
+        options: { plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true } } }
+      });
+    }
+
+    // containers by month (line)
+    const ctxContMonth = document.getElementById('containersByMonth')?.getContext('2d');
+    if(ctxContMonth && containersMonth.length){
+      makeLine(ctxContMonth, containersMonth.map(d=>d[0]), containersMonth.map(d=>d[1]), 'rgba(54,162,235,0.45)');
+    }
+
+    // containers by day (line)
+    const ctxContDay = document.getElementById('containersByDay')?.getContext('2d');
+    if(ctxContDay && containersDay.length){
+      makeLine(ctxContDay, containersDay.map(d=>d[0]), containersDay.map(d=>d[1]), 'rgba(75,192,192,0.45)');
+    }
+
+  </script>
+
+  <!-- Just before closing </body> tag -->
+  {% include 'footer.html' %}
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const navbar = document.querySelector(".navbar");
+  const footer = document.querySelector("footer");
+  
+  if (!navbar || !footer) return; // Safety check
+  
+  let lastScrollTop = 0;
+  let isScrollingDown = false;
+
+  function checkScroll() {
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    
+    // Navbar hide/show logic
+    if (scrollTop > lastScrollTop && scrollTop > 80) {
+      if (!isScrollingDown) {
+        navbar.style.transform = "translateY(-100%)";
+        isScrollingDown = true;
+      }
+    } else {
+      if (isScrollingDown || scrollTop <= 80) {
+        navbar.style.transform = "translateY(0)";
+        isScrollingDown = false;
+      }
+    }
+    
+    lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
+
+    // Footer visibility - show only at bottom
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = document.documentElement.clientHeight;
+    const scrollPosition = scrollTop + clientHeight;
+    
+    // Show footer when within 100px of bottom
+    if (scrollHeight - scrollPosition < 100) {
+      footer.classList.add('visible');
+    } else {
+      footer.classList.remove('visible');
+    }
+  }
+
+  // Listen to scroll events
+  window.addEventListener("scroll", checkScroll);
+  
+  // Also check on page load and resize (in case page is short)
+  window.addEventListener("resize", checkScroll);
+  
+  // Initial check on load
+  setTimeout(checkScroll, 100);
+});
+</script>
+
 </body>
 </html>

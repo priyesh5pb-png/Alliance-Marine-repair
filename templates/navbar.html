@@ -1,46 +1,194 @@
-<nav class="navbar navbar-expand-lg shadow-sm" style="background-color: #0C1B5E;">
-  <div class="container-fluid">
-    <!-- Brand / Logo -->
-    <a class="navbar-brand d-flex align-items-center fw-bold text-white" href="{{ url_for('dashboard') }}">
-      <!-- You can add your logo later -->
-      <!-- <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Alliance Groups Logo" height="34" class="me-2"> -->
-      Alliance Groups
-    </a>
-
-    <!-- Mobile Toggle -->
-    <button class="navbar-toggler text-white" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-      <span class="navbar-toggler-icon"></span>
+<!-- templates/navbar.html -->
+<header class="navbar w-100" role="navigation" style="background:var(--secondary-color);">
+  <div class="container-fluid position-relative">
+  <!-- LEFT: Toggle + Brand -->
+  <div class="d-flex align-items-center" style="height:56px;">
+    <button id="sidebarToggle" class="btn btn-link text-white me-2" aria-label="Toggle sidebar" title="Toggle sidebar" type="button">
+      <i class="bi bi-list"></i>
     </button>
+    <a class="navbar-brand text-white ms-2" href="{{ url_for('dashboard') }}">Alliance Marine Terminal</a>
+  </div>
 
-    <!-- Nav Links -->
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav ms-auto">
-        <li class="nav-item">
-          <a class="nav-link text-white {% if request.endpoint == 'dashboard' %}active-nav{% endif %}" href="{{ url_for('dashboard') }}">
-            Dashboard
-          </a>
-        </li>
-
-        <li class="nav-item">
-          <a class="nav-link text-white {% if request.endpoint == 'reports' %}active-nav{% endif %}" href="{{ url_for('reports') }}">
-            Reports
-          </a>
-        </li>
-
-        {% if session.get("user_role") == "admin" %}
-        <li class="nav-item">
-          <a class="nav-link text-white {% if request.endpoint == 'admin_panel' %}active-nav{% endif %}" href="/admin_panel">
-            Panel
-          </a>
-        </li>
-        {% endif %}
-
-        <li class="nav-item">
-          <a class="nav-link text-danger fw-semibold" href="{{ url_for('logout') }}">
-            Logout
-          </a>
-        </li>
+  <!-- RIGHT: User dropdown -->
+  <div class="navbar-end">
+    <div class="dropdown">
+      <a class="text-white dropdown-toggle" href="#" data-bs-toggle="dropdown">
+        {{ session.get('user','User') }}
+      </a>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item text-danger" href="{{ url_for('logout') }}">Logout</a></li>
       </ul>
     </div>
   </div>
-</nav>
+
+  <!-- CENTER: Search -->
+  <div class="navbar-center-search">
+    <form class="navbar-search w-100" action="{{ url_for('reports') }}" method="get" role="search">
+      <div class="input-group mx-auto" style="max-width:600px;">
+        <input
+          name="q"
+          class="form-control form-control-sm"
+          type="search"
+          placeholder="Search container / report..."
+          aria-label="Search container or report"
+          value="{{ request.args.get('q', '') }}"
+          autocomplete="off"
+        >
+        <button class="btn btn-outline-light" type="submit" title="Search">
+          <i class="bi bi-search"></i>
+        </button>
+      </div>
+    </form>
+  </div>
+  </div>
+
+</header>
+
+<script>
+/*
+  Sidebar toggle script — waits for the DOM so it always finds #sidebar,
+  supports desktop (push) and mobile (overlay) mode, keeps body state in sync.
+*/
+(function(){
+  // Run setup once DOM is ready
+  function setupSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebarToggle');
+
+    if (!toggle) {
+      // Nothing we can do without a toggle button
+      return;
+    }
+
+    // Create backdrop if missing
+    let backdrop = document.getElementById('sidebar-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = 'sidebar-backdrop';
+      document.body.appendChild(backdrop);
+    }
+
+    const isDesktop = () => window.innerWidth >= 992;
+
+    // Safely toggle classes based on current window size
+    function syncLayout() {
+      if (!sidebar) {
+        // Sidebar not present — ensure mobile defaults
+        document.body.classList.remove('sidebar-pushed');
+        backdrop.classList.remove('visible');
+        toggle.setAttribute('aria-expanded', 'false');
+        return;
+      }
+
+      if (isDesktop()) {
+        // Desktop: sidebar visible by default (push content)
+        sidebar.classList.remove('open', 'closed');
+        document.body.classList.add('sidebar-pushed');
+        backdrop.classList.remove('visible');
+        document.body.style.overflow = '';
+        toggle.setAttribute('aria-expanded', 'true');
+      } else {
+        // Mobile: overlay hidden by default
+        sidebar.classList.remove('open', 'closed');
+        document.body.classList.remove('sidebar-pushed');
+        backdrop.classList.remove('visible');
+        document.body.style.overflow = '';
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    }
+
+    function toggleSidebar(e) {
+      e && e.preventDefault();
+
+      if (!sidebar) return;
+
+      if (isDesktop()) {
+        // Desktop: push/pull
+        const closed = sidebar.classList.toggle('closed');
+        if (closed) {
+          document.body.classList.remove('sidebar-pushed');
+          toggle.setAttribute('aria-expanded', 'false');
+        } else {
+          document.body.classList.add('sidebar-pushed');
+          toggle.setAttribute('aria-expanded', 'true');
+        }
+        // ensure overlay/backdrop off
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('visible');
+        document.body.style.overflow = '';
+      } else {
+        // Mobile: overlay mode
+        const opening = !sidebar.classList.contains('open');
+        if (opening) {
+          sidebar.classList.add('open');
+          backdrop.classList.add('visible');
+          document.body.style.overflow = 'hidden';
+          toggle.setAttribute('aria-expanded', 'true');
+        } else {
+          sidebar.classList.remove('open');
+          backdrop.classList.remove('visible');
+          document.body.style.overflow = '';
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+        // ensure not in pushed state on mobile
+        document.body.classList.remove('sidebar-pushed');
+        sidebar.classList.remove('closed');
+      }
+    }
+
+    // Events
+    toggle.removeEventListener('click', toggleSidebar); // safe detach
+    toggle.addEventListener('click', toggleSidebar);
+
+    backdrop.addEventListener('click', () => {
+      if (!sidebar) return;
+      sidebar.classList.remove('open');
+      backdrop.classList.remove('visible');
+      document.body.style.overflow = '';
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+
+    // Click outside sidebar closes overlay on mobile
+    document.addEventListener('click', (ev) => {
+      if (!sidebar) return;
+      if (isDesktop()) return;
+      if (!sidebar.classList.contains('open')) return;
+      if (sidebar.contains(ev.target) || toggle.contains(ev.target)) return;
+      sidebar.classList.remove('open');
+      backdrop.classList.remove('visible');
+      document.body.style.overflow = '';
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+
+    // Escape closes overlay
+    document.addEventListener('keydown', (ev) => {
+      if (!sidebar) return;
+      if (ev.key === 'Escape' && sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('visible');
+        document.body.style.overflow = '';
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // Resize handling: debounce and sync layout
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        syncLayout();
+      }, 120);
+    });
+
+    // initial sync
+    syncLayout();
+  }
+
+  // If DOM already ready run immediately, otherwise wait
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupSidebar);
+  } else {
+    setupSidebar();
+  }
+})();
+</script>

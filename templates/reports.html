@@ -4,15 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Reports - Alliance Marine</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
   <style>
     #searchInput { max-width: 250px; }
   </style>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 </head>
-<body class="bg-light">
+<body class="d-flex flex-column min-vh-100">
 
 {% include 'navbar.html' %}
+<div class="main-wrap d-flex">
+    {% include 'sidebar.html' %}
 
 <div class="container mt-5">
   <div class="card shadow-lg">
@@ -262,6 +266,62 @@ document.getElementById("resetFiltersBtn").addEventListener("click", () => {
 });
 
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+   <!-- Just before closing </body> tag -->
+  {% include 'footer.html' %}
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const navbar = document.querySelector(".navbar");
+  const footer = document.querySelector("footer");
+  
+  if (!navbar || !footer) return; // Safety check
+  
+  let lastScrollTop = 0;
+  let isScrollingDown = false;
+
+  function checkScroll() {
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    
+    // Navbar hide/show logic
+    if (scrollTop > lastScrollTop && scrollTop > 80) {
+      if (!isScrollingDown) {
+        navbar.style.transform = "translateY(-100%)";
+        isScrollingDown = true;
+      }
+    } else {
+      if (isScrollingDown || scrollTop <= 80) {
+        navbar.style.transform = "translateY(0)";
+        isScrollingDown = false;
+      }
+    }
+    
+    lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
+
+    // Footer visibility - show only at bottom
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = document.documentElement.clientHeight;
+    const scrollPosition = scrollTop + clientHeight;
+    
+    // Show footer when within 100px of bottom
+    if (scrollHeight - scrollPosition < 100) {
+      footer.classList.add('visible');
+    } else {
+      footer.classList.remove('visible');
+    }
+  }
+
+  // Listen to scroll events
+  window.addEventListener("scroll", checkScroll);
+  
+  // Also check on page load and resize (in case page is short)
+  window.addEventListener("resize", checkScroll);
+  
+  // Initial check on load
+  setTimeout(checkScroll, 100);
+});
+</script>
 </body>
 </html>

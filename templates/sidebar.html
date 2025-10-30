@@ -1,0 +1,56 @@
+<!-- templates/sidebar.html -->
+<nav id="sidebar" class="d-flex flex-column p-3 text-white">
+  <ul class="nav nav-pills flex-column mb-auto">
+
+    <!-- Dashboard -->
+    <li class="nav-item mb-1">
+      <a href="{{ url_for('dashboard') }}"
+         class="nav-link text-white {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <i class="bi bi-speedometer2"></i>
+        <span class="text-label ms-2">Dashboard</span>
+      </a>
+    </li>
+
+    <!-- Estimate -->
+    <li class="nav-item mb-1">
+      <a href="{{ url_for('estimation') }}"
+         class="nav-link text-white {% if request.endpoint == 'estimation' %}active{% endif %}">
+        <i class="bi bi-pencil-square"></i>
+        <span class="text-label ms-2">Estimate</span>
+      </a>
+    </li>
+
+    <!-- Reports -->
+    <li class="nav-item mb-1">
+      <a href="{{ url_for('reports') }}"
+         class="nav-link text-white {% if request.endpoint == 'reports' %}active{% endif %}">
+        <i class="bi bi-bar-chart-line"></i>
+        <span class="text-label ms-2">Reports</span>
+      </a>
+    </li>
+
+    <!-- Admin Panel (admin only) -->
+    {% if session.get("user_role") == "admin" %}
+    <li class="nav-item mb-1">
+      <a href="/admin_panel"
+         class="nav-link text-white {% if request.endpoint == 'admin_panel' %}active{% endif %}">
+        <i class="bi bi-gear"></i>
+        <span class="text-label ms-2">Panel</span>
+      </a>
+    </li>
+    {% endif %}
+
+    <!-- Logout -->
+    <li class="nav-item mt-3">
+      <a href="{{ url_for('logout') }}"
+         class="nav-link text-danger">
+        <i class="bi bi-box-arrow-right"></i>
+        <span class="text-label ms-2">Logout</span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="mt-auto text-white small text-center">
+    <div class="mt-3">v1.0</div>
+  </div>
+</nav>

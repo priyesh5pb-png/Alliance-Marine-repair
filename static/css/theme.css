@@ -11,6 +11,11 @@
   --text-color: #212529;        /* Main text */
   --border-color: #DEE2E6;      /* Borders */
   --muted-color: #6C757D;       /* Subtle text / placeholders */
+  --sidebar-width: 220px;
+  --navbar-height: 56px;
+  --footer-height: 56px;
+  --sidebar-bg: #0C1B5E;
+  --sidebar-transition: 320ms ease;
 }
 
 /* --------------------------
@@ -20,13 +25,32 @@ body {
   background-color: var(--background-color);
   color: var(--text-color);
   font-family: "Poppins", sans-serif;
+  padding-top: var(--navbar-height);
+  margin: 0;
+  transition: margin-left var(--sidebar-transition);
 }
 
 /* --------------------------
-   NAVBAR STYLES
+   NAVBAR STYLES (FIXED, FULL WIDTH)
 ----------------------------- */
 .navbar {
+  position: fixed !important;
+  top: 0;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100vw !important;
+  height: var(--navbar-height);
   background-color: var(--secondary-color) !important;
+  z-index: 1100;
+  margin: 0 !important;
+  padding: 0 !important;
+  transition: transform 0.3s ease-in-out;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.navbar .container-fluid {
+  max-width: 100%;
+  padding: 0 1rem;
 }
 
 .navbar-brand {
@@ -37,11 +61,9 @@ body {
 
 .navbar-brand:hover {
   color: var(--primary-color) !important;
-  text-decoration: none !important;        /* ensure no underline */
-  border-bottom: none !important;
+  text-decoration: none !important;
 }
 
-/* Navbar links: colour change only (no underline/border) */
 .navbar-nav .nav-link {
   color: #ffffff !important;
   transition: color 0.15s ease;
@@ -51,12 +73,10 @@ body {
 }
 
 .navbar-nav .nav-link:hover {
-  color: var(--primary-color) !important; /* red on hover */
-  text-decoration: none !important;        /* ensure no underline */
-  border-bottom: none !important;
+  color: var(--primary-color) !important;
+  text-decoration: none !important;
 }
 
-/* active nav - color only */
 .active-nav {
   color: var(--primary-color) !important;
   border-bottom: none !important;
@@ -129,7 +149,7 @@ body {
 }
 
 .table tbody tr:hover {
-  background-color: rgba(229, 48, 18, 0.06); /* Light red hover tint */
+  background-color: rgba(229, 48, 18, 0.06);
   transition: background-color 0.2s ease;
 }
 
@@ -191,15 +211,276 @@ a:hover {
 }
 
 /* --------------------------
-   FOOTER
+   UTILITIES / MISC
 ----------------------------- */
+.shadow-soft {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+}
+
+.rounded-xl {
+  border-radius: 12px;
+}
+
+/* ===============================
+   SIDEBAR LAYOUT
+=============================== */
+
+/* Sidebar defaults (mobile overlay mode) */
+#sidebar {
+  position: fixed;
+  top: var(--navbar-height);
+  left: 0;
+  width: var(--sidebar-width);
+  height: calc(100vh - var(--navbar-height));
+  background: var(--sidebar-bg);
+  color: #fff;
+  z-index: 1050;
+  transform: translateX(-100%);
+  transition: transform var(--sidebar-transition);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  overflow-y: auto;
+}
+
+/* visible overlay state (mobile) */
+#sidebar.open {
+  transform: translateX(0);
+}
+
+/* Desktop: sidebar visible by default and pushes content */
+@media (min-width: 992px) {
+  #sidebar {
+    transform: translateX(0);
+  }
+
+  #sidebar.closed {
+    transform: translateX(calc(-1 * var(--sidebar-width)));
+  }
+
+  body.sidebar-pushed {
+    margin-left: var(--sidebar-width);
+  }
+
+  body:not(.sidebar-pushed) {
+    margin-left: 0;
+  }
+}
+
+/* Sidebar backdrop (mobile only) */
+#sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  top: var(--navbar-height);
+  z-index: 1040;
+  background: rgba(0,0,0,0.35);
+  transition: opacity var(--sidebar-transition);
+  opacity: 0;
+}
+
+#sidebar-backdrop.visible {
+  display: block;
+  opacity: 1;
+}
+
+/* ===============================
+   NAVBAR CENTER SEARCH - UPDATED
+=============================== */
+
+.navbar .navbar-center-search {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  height: 56px;
+  display: flex;
+  align-items: center;
+  z-index: 1110;
+  pointer-events: none;
+  width: 100%;
+  max-width: 900px;
+  padding: 0 280px;
+}
+
+.navbar .navbar-center-search .navbar-search,
+.navbar .navbar-center-search .input-group,
+.navbar .navbar-center-search input,
+.navbar .navbar-center-search button {
+  pointer-events: auto;
+}
+
+.navbar .navbar-center-search .input-group {
+  display: inline-flex;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.navbar .navbar-center-search .input-group .form-control {
+  border-radius: 6px 0 0 6px;
+  height: 42px;
+  font-size: 15px;
+}
+
+.navbar .navbar-center-search .input-group .btn {
+  border-radius: 0 6px 6px 0;
+  height: 42px;
+  padding: 0 20px;
+}
+
+/* Large desktop */
+@media (min-width: 1400px) {
+  .navbar .navbar-center-search {
+    max-width: 1000px;
+    padding: 0 300px;
+  }
+}
+
+/* Desktop */
+@media (max-width: 1399px) and (min-width: 1200px) {
+  .navbar .navbar-center-search {
+    max-width: 850px;
+    padding: 0 280px;
+  }
+}
+
+/* Medium screens */
+@media (max-width: 1199px) and (min-width: 992px) {
+  .navbar .navbar-center-search {
+    max-width: 700px;
+    padding: 0 260px;
+  }
+  
+  .navbar .navbar-center-search .input-group .form-control {
+    height: 38px;
+    font-size: 14px;
+  }
+  
+  .navbar .navbar-center-search .input-group .btn {
+    height: 38px;
+    padding: 0 16px;
+  }
+}
+
+/* Tablets */
+@media (max-width: 991px) and (min-width: 768px) {
+  .navbar .navbar-center-search {
+    max-width: 500px;
+    padding: 0 240px;
+  }
+  
+  .navbar .navbar-center-search .input-group .form-control {
+    height: 38px;
+    font-size: 14px;
+  }
+  
+  .navbar .navbar-center-search .input-group .btn {
+    height: 38px;
+    padding: 0 16px;
+  }
+}
+
+/* Large mobile */
+@media (max-width: 767px) and (min-width: 577px) {
+  .navbar .navbar-center-search {
+    max-width: 350px;
+    padding: 0 220px;
+  }
+  
+  .navbar .navbar-center-search .input-group .form-control {
+    height: 36px;
+    font-size: 13px;
+  }
+  
+  .navbar .navbar-center-search .input-group .btn {
+    height: 36px;
+    padding: 0 14px;
+  }
+}
+
+/* Small mobile - hide search bar */
+@media (max-width: 576px) {
+  .navbar .navbar-center-search { 
+    display: none; 
+  }
+}
+
+.navbar .navbar-end {
+  position: fixed;
+  right: 16px;
+  top: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  z-index: 1125;
+}
+
+.navbar .navbar-end .dropdown-toggle {
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.navbar .navbar-end .dropdown-menu {
+  margin-top: 0.5rem;
+}
+
+/* ===============================
+   MAIN CONTENT AREA
+=============================== */
+
+.main-wrap {
+  display: flex;
+  min-height: calc(100vh - var(--navbar-height));
+  transition: margin-left var(--sidebar-transition);
+}
+
+.content {
+  flex: 1;
+  padding: 24px;
+  min-height: calc(100vh - var(--navbar-height) - var(--footer-height));
+  transition: margin-left var(--sidebar-transition);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ===============================
+   FOOTER (FIXED BOTTOM, FULL WIDTH)
+=============================== */
+
 footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: var(--footer-height);
   background-color: var(--secondary-color);
   color: white;
-  text-align: center;
-  padding: 0.75rem;
-  font-size: 0.9rem;
-  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1030;
+  padding: 0 1rem;
+  box-sizing: border-box;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  transition: opacity 0.3s ease, transform 0.3s ease, left var(--sidebar-transition), width var(--sidebar-transition);
+  /* Start hidden - JS will show when scrolled to bottom */
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+/* Footer visible state (controlled by JS) */
+footer.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* Desktop: footer shifts right when sidebar is pushed */
+@media (min-width: 992px) {
+  body.sidebar-pushed footer {
+    left: var(--sidebar-width);
+    width: calc(100vw - var(--sidebar-width));
+  }
 }
 
 footer a {
@@ -209,16 +490,14 @@ footer a {
 
 footer a:hover {
   color: var(--primary-dark);
-  text-decoration: underline;
 }
 
-/* --------------------------
-   UTILITIES / MISC
------------------------------ */
-.shadow-soft {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+/* Add bottom padding to content to prevent overlap with footer */
+.content {
+  padding-bottom: calc(var(--footer-height) + 24px);
 }
 
-.rounded-xl {
-  border-radius: 12px;
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
 }

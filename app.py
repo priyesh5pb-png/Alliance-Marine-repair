@@ -11,7 +11,7 @@ from flask import (
     jsonify, send_file
 )
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from flask_bcrypt import Bcrypt
 import pandas as pd
 from flask_admin import Admin
@@ -200,33 +200,95 @@ def dashboard():
     username = session["user"]
     user = User.query.filter_by(username=username).first()
 
-    # ✅ Admin Dashboard
+       # ✅ Admin Dashboard
     if user.role == "admin":
-        total_reports = Report.query.count()
+        # total reports
+        total_reports = Report.query.count() or 0
 
-        # Reports generated this month
-        now = datetime.now()
+        # Reports generated this month (safely)
+        now = datetime.utcnow()
+        # month bounds
+        start_month = datetime(now.year, now.month, 1)
+        if now.month == 12:
+            next_month = datetime(now.year + 1, 1, 1)
+        else:
+            next_month = datetime(now.year, now.month + 1, 1)
+
         reports_this_month = Report.query.filter(
-            db.extract("month", Report.timestamp) == now.month,
-            db.extract("year", Report.timestamp) == now.year
+            Report.timestamp >= start_month,
+            Report.timestamp < next_month
         ).count()
 
-        # Breakdown by line → convert Row objects to plain list
-        by_line = db.session.query(Report.line, db.func.count()).group_by(Report.line).all()
-        by_line_data = [[row[0], row[1]] for row in by_line]
+        # total unique containers repaired (all time) and for the month
+        from sqlalchemy import func
+        total_containers = db.session.query(func.count(func.distinct(Report.container_no))).scalar() or 0
+        containers_this_month = db.session.query(
+            func.count(func.distinct(Report.container_no))
+        ).filter(Report.timestamp >= start_month, Report.timestamp < next_month).scalar() or 0
 
-        return render_template("dashboard_admin.html",
-                               username=username,
-                               total_reports=total_reports,
-                               reports_this_month=reports_this_month,
-                               by_line=by_line_data)
+        # Reports by line (all time)
+        raw_by_line_all = db.session.query(Report.line, func.count(Report.id)).group_by(Report.line).order_by(func.count(Report.id).desc()).all()
+        by_line_all = [[r[0] or "Unknown", int(r[1])] for r in raw_by_line_all] if raw_by_line_all else []
+
+        # Reports by line (this month)
+        raw_by_line_month = db.session.query(Report.line, func.count(Report.id)).filter(
+            Report.timestamp >= start_month, Report.timestamp < next_month
+        ).group_by(Report.line).order_by(func.count(Report.id).desc()).all()
+        by_line_month = [[r[0] or "Unknown", int(r[1])] for r in raw_by_line_month] if raw_by_line_month else []
+
+        # Latest 5 reports (newest first)
+        latest_reports = Report.query.order_by(Report.timestamp.desc()).limit(5).all()
+
+        # containers by month (last 12 months) -> simple list [label, count]
+        months = []
+        for i in range(11, -1, -1):
+            # compute year/month offset properly
+            year = (now.year - ((now.month - 1 - i) // 12))
+            month = ((now.month - 1 - i) % 12) + 1
+            first_day = datetime(year, month, 1)
+            if month == 12:
+                next_m = datetime(year + 1, 1, 1)
+            else:
+                next_m = datetime(year, month + 1, 1)
+            cnt = db.session.query(func.count(func.distinct(Report.container_no))).filter(Report.timestamp >= first_day, Report.timestamp < next_m).scalar() or 0
+            months.append([first_day.strftime("%b %y"), int(cnt)])
+        containers_by_month = months
+
+        # containers by day for current month
+        per_day_raw = db.session.query(func.date(Report.timestamp), func.count(func.distinct(Report.container_no))).filter(
+            Report.timestamp >= start_month, Report.timestamp < next_month
+        ).group_by(func.date(Report.timestamp)).order_by(func.date(Report.timestamp)).all()
+        # make map date->count then fill days 1..today.day
+        per_day_map = {d.strftime("%Y-%m-%d"): c for d, c in per_day_raw}
+        days_list = []
+        for d in range(1, now.day + 1):
+            cur = datetime(now.year, now.month, d)
+            key = cur.strftime("%Y-%m-%d")
+            days_list.append([str(d), int(per_day_map.get(key, 0))])
+        containers_by_day = days_list
+
+        return render_template(
+            "dashboard_admin.html",
+            username=username,
+            total_reports=total_reports,
+            reports_this_month=reports_this_month,
+            by_line_all=by_line_all,
+            by_line_month=by_line_month,
+            total_containers=total_containers,
+            containers_this_month=containers_this_month,
+            latest_reports=latest_reports,
+            containers_by_month=containers_by_month,
+            containers_by_day=containers_by_day,
+            current_month=start_month.strftime("%Y-%m")
+        )
 
     # ✅ Normal User Dashboard
     else:
         report_count = Report.query.filter_by(username=username).count()
         return render_template("dashboard.html",
                                username=username,
-                               report_count=report_count)
+                               report_count=report_count,
+                               )
 
 # ---------------- ESTIMATION (PAGE 2) ----------------
 # ---------------- ESTIMATION (Page 2) ----------------
@@ -487,26 +549,76 @@ def preview_report(report_id):
 # ---------------- Reports Page ----------------
 @app.route("/reports")
 def reports():
+    # require login
     if "user" not in session:
         return redirect(url_for("login"))
 
     username = session["user"]
     user = User.query.filter_by(username=username).first()
 
-    if user.role == "admin":
-        reports = Report.query.order_by(Report.timestamp.desc()).all()
-    else:
-        reports = (
-            Report.query.filter_by(username=username)
-            .order_by(Report.timestamp.desc())
-            .all()
+    # query params
+    q = request.args.get("q", "").strip()
+    line = request.args.get("line")
+    month = request.args.get("month")    # expected format: "YYYY-MM"
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+
+    # base query
+    qs = Report.query
+
+    # non-admins only see their own reports
+    if not user or getattr(user, "role", "") != "admin":
+        qs = qs.filter_by(username=username)
+
+    # search across container_no and line
+    if q:
+        qs = qs.filter(
+            or_(
+                Report.container_no.ilike(f"%{q}%"),
+                Report.line.ilike(f"%{q}%"),
+            )
         )
 
-    # get distinct line values
-    lines = [l[0] for l in db.session.query(ContainerInfo.line).distinct().all()]
+    # filter by line
+    if line:
+        qs = qs.filter(Report.line == line)
 
-    return render_template("reports.html", reports=reports, lines=lines, is_admin=(user.role == "admin"))
+    # filter by month (YYYY-MM)
+    if month:
+        try:
+            dt = datetime.strptime(month, "%Y-%m")
+            start = datetime(dt.year, dt.month, 1)
+            # compute month end (first day of next month)
+            if dt.month == 12:
+                end = datetime(dt.year + 1, 1, 1)
+            else:
+                end = datetime(dt.year, dt.month + 1, 1)
+            qs = qs.filter(Report.timestamp >= start, Report.timestamp < end)
+        except Exception:
+            # invalid month format - ignore filter
+            pass
 
+    # newest first
+    qs = qs.order_by(Report.timestamp.desc())
+
+    # paginate - returns sqlalchemy Pagination object (items, has_next, etc.)
+    pagination = qs.paginate(page=page, per_page=per_page, error_out=False)
+    reports_list = pagination.items
+
+    # distinct lines for the filter dropdown
+    lines_query = db.session.query(ContainerInfo.line).distinct().all()
+    lines = [r[0] for r in lines_query if r[0]] if lines_query else []
+
+    return render_template(
+        "reports.html",
+        reports=reports_list,
+        pagination=pagination,
+        q=q,
+        line=line,
+        month=month,
+        lines=lines,
+        is_admin=(user and getattr(user, "role", "") == "admin"),
+    )
 
 @app.route("/delete_report/<int:report_id>", methods=["POST"])
 def delete_report(report_id):
