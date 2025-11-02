@@ -5,7 +5,7 @@ import os
 import io
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import (
     Flask, render_template, request, redirect, url_for, session, flash,
     jsonify, send_file
@@ -46,6 +46,14 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 
+#------------IST-----------------
+def get_ist_time():
+    """Get current time in IST (UTC+5:30)"""
+    utc_now = datetime.now(timezone.utc)
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_time = utc_now + ist_offset
+    return ist_time
+
 # ---------------- Models ----------------
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -82,7 +90,7 @@ class Report(db.Model):
     line = db.Column(db.String(50), nullable=True)
     file_type = db.Column(db.String(20), nullable=False)
     file_path = db.Column(db.String(300), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=get_ist_time)
     grand_total = db.Column(db.Float, default=0.0)
     container_id = db.Column(db.Integer, db.ForeignKey("container_info.id"))
     
@@ -206,7 +214,7 @@ def dashboard():
         total_reports = Report.query.count() or 0
 
         # Reports generated this month (safely)
-        now = datetime.utcnow()
+        now = get_ist_time().replace(tzinfo=None)   # Remove timezone info for comparison
         # month bounds
         start_month = datetime(now.year, now.month, 1)
         if now.month == 12:
@@ -290,7 +298,6 @@ def dashboard():
                                report_count=report_count,
                                )
 
-# ---------------- ESTIMATION (PAGE 2) ----------------
 # ---------------- ESTIMATION (Page 2) ----------------
 @app.route("/estimation", methods=["GET", "POST"])
 def estimation():
@@ -753,7 +760,7 @@ def export_reports_excel():
             cell.font = Font(bold=True)
 
     output.seek(0)
-    filename = f"Filtered_Reports_{username}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    filename = f"Filtered_Reports_{username}_{get_ist_time().strftime('%Y%m%d_%H%M')}.xlsx"
 
     return send_file(
         output,
@@ -827,7 +834,7 @@ def export_filtered_reports_excel():
             cell.font = Font(bold=True)
 
     output.seek(0)
-    filename = f"Filtered_Reports_{username}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    filename = f"Filtered_Reports_{username}_{get_ist_time().strftime('%Y%m%d_%H%M')}.xlsx"
 
     return send_file(
         output,
@@ -1110,7 +1117,7 @@ def export_excel_internal(username, container_info, entries, line, container_no)
         ws[f"A{date_row}"].font = Font(bold=True)
         ws[f"A{date_row}"].alignment = Alignment(horizontal="right", vertical="center")
 
-        ws[f"B{date_row}"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws[f"B{date_row}"] = get_ist_time().strftime("%Y-%m-%d %H:%M:%S")
         ws[f"B{date_row}"].font = Font(bold=True)
         ws[f"B{date_row}"].alignment = Alignment(horizontal="center", vertical="center")
 
@@ -1136,7 +1143,7 @@ def export_excel_internal(username, container_info, entries, line, container_no)
     # ---- Save file ----
     output.seek(0)
     user_dir = ensure_user_dir(username)
-    file_path = os.path.join(user_dir, f"{line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    file_path = os.path.join(user_dir, f"{line}_{container_no}_{get_ist_time().strftime('%Y%m%d_%H%M%S')}.xlsx")
     with open(file_path, "wb") as f:
         f.write(output.getvalue())
 
@@ -1295,7 +1302,7 @@ def export_pdf_internal(username, container_info, entries, line, container_no):
     # ---- Approved Amount + Date Generated ----
     approved_data = [
         ["Approved Amount", ""],
-        ["Date Generated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+        ["Date Generated", get_ist_time().strftime("%Y-%m-%d %H:%M:%S")]
     ]
     approved_tbl = Table(approved_data, colWidths=[200, 250], hAlign="CENTER")
     approved_tbl.setStyle(TableStyle([
@@ -1312,7 +1319,7 @@ def export_pdf_internal(username, container_info, entries, line, container_no):
     user_dir = ensure_user_dir(username)
     file_path = os.path.join(
         user_dir,
-        f"{line}_{container_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        f"{line}_{container_no}_{get_ist_time().strftime('%Y%m%d_%H%M%S')}.pdf"
     )
 
     # Save the PDF file

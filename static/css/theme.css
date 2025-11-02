@@ -501,3 +501,36 @@ footer a:hover {
 html {
   scroll-behavior: smooth;
 }
+
+footer .footer-link {
+  color: white;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+footer .footer-link:hover {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+/* ============================================
+   NEW SCROLL / HIDING LOGIC
+   ============================================ */
+
+/* 1. HIDE NAVBAR: When body has the 'scrolled-down' class, translate it up */
+body.scrolled-down .navbar {
+  transform: translateY(-100%);
+}
+
+/* 2. FIX SIDEBAR GAP: When body has the 'scrolled-down' class, move sidebar to the top */
+body.scrolled-down #sidebar {
+  /* Sidebar jumps to the absolute top of the viewport (0) */
+  top: 0;
+  /* Adjust height to be 100% of viewport since it's no longer starting 56px down */
+  height: 100vh;
+}
+
+/* 3. MOBILE BACKDROP FIX: Align backdrop to the new sidebar top */
+body.scrolled-down #sidebar-backdrop {
+  top: 0;
+}

@@ -191,4 +191,34 @@
     setupSidebar();
   }
 })();
+
+// Immediately Invoked Function Expression for Scroll Logic
+(function(){
+  const body = document.body;
+  const navbarHeight = 56; // Matching your --navbar-height CSS variable
+  let lastScrollTop = 0;
+  const scrollThreshold = navbarHeight * 2; // Scroll 112px before hiding
+
+  // Function to handle the scroll event logic
+  function handleScroll() {
+    const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
+
+    // SCROLL DOWN: Hide Navbar
+    if (currentScroll > lastScrollTop && currentScroll > scrollThreshold) {
+      body.classList.add('scrolled-down');
+    }
+    // SCROLL UP or AT TOP: Show Navbar
+    else if (currentScroll < lastScrollTop || currentScroll <= navbarHeight) {
+      body.classList.remove('scrolled-down');
+    }
+
+    lastScrollTop = currentScroll <= 0 ? 0 : currentScroll; // Prevents negative scrolling value
+  }
+
+  // Attach the event listener (debouncing is often good here, but for simplicity, we use a direct listener)
+  window.addEventListener('scroll', handleScroll, { passive: true });
+
+  // Optional: Run on load to handle initial page position
+  handleScroll();
+})();
 </script>
