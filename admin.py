@@ -1,13 +1,15 @@
+# admin.py
 import logging
-from flask_admin import Admin, AdminIndexView, expose
+from flask import redirect, url_for, session, current_app
+from flask_admin import Admin, AdminIndexView
 from flask_admin.contrib.sqla import ModelView
 from flask_admin.menu import MenuLink
-from flask import redirect, url_for, session, current_app
-from flask_bcrypt import Bcrypt
 from wtforms.fields import SelectField
+from flask_bcrypt import Bcrypt
 
 bcrypt = Bcrypt()
-logger = logging.getLogger(__name__)  
+logger = logging.getLogger(__name__)
+
 
 # --- Custom Admin Views ------------------------------------------------------
 
@@ -33,57 +35,58 @@ class ReadOnlyView(SecureModelView):
     can_delete = False
 
 
-# ✅ Custom User Admin View (only this should be used for User model)
+# ✅ Custom User Admin View (explicit SelectField + safe create_form)
 class UserAdminView(SecureModelView):
+    # show everything except password in list view
     column_exclude_list = ["password"]
 
     # columns and ordering used in create/edit forms
     form_columns = ["username", "password", "role"]
 
-    #Force role to be a SelectField (avoid Flask-Admin inferring choices/flags)
+    # Force role to be a SelectField (avoid Flask-Admin inferring choices/flags)
     form_overrides = {
-        "role" : SelectField
+        "role": SelectField
     }
 
-    # Provided the choices explicitly via form_args 
+    # Provide the choices explicitly via form_args (this is the reliable approach)
     form_args = {
-        'role': [
-            "choices" : [("user", "User"), ("admin", "Admin")],
-            "coerce" : str
-        ]
+        "role": {
+            "choices": [("user", "User"), ("admin", "Admin")],
+            "coerce": str
+        }
     }
 
     def create_form(self, obj=None):
         """
-        Wrap create_form to log debug info if WTForms/Flask-Admin tries to pass
-        malformed data (Help render debugging)
+        Wrap create_form to log debug info if WTForms / Flask-Admin
+        tries to pass malformed data (helps debugging on Render).
         """
-        try: 
+        try:
             form = super().create_form(obj=obj)
-            #quick debug trace in logs
+            # quick debug trace in logs
             logger.debug("UserAdminView.create_form: created form class %s", type(form))
             return form
         except Exception as e:
-            #log detailed content in log to inspect in render
-            logger.exception("Error creating User form (create_form).obj=%s", repr(obj))
-            #re-raise so Flask shows proper 500 and stack trace
+            # log detailed context to server logs so you can inspect on Render
+            logger.exception("Error creating User form (create_form). obj=%s", repr(obj))
+            # re-raise so Flask shows the proper 500 and you can see stack trace
             raise
 
     def on_model_change(self, form, model, is_created):
         """
-        Hash plaintext password before saving. If the supplied value already looks
-        like a bcrypt hash leave it alone.
+        Hash plaintext password before saving. If the supplied value already
+        looks like a bcrypt hash (starts with $2b$) we leave it alone.
         """
         logger.debug("UserAdminView.on_model_change: is_created=%s username=%s", is_created, getattr(model, "username", None))
         if getattr(form, "password", None) and form.password.data:
             pwd = form.password.data
-            #If user typed a plaintext password, generate hashed password.
-            #If they paste the hashed string, don't double hash
+            # If user typed a plaintext password (does not start with bcrypt prefix),
+            # generate hashed password. If they paste the hashed string, don't double-hash.
             if not isinstance(pwd, str):
                 pwd = str(pwd)
             if not pwd.startswith("$2b$") and not pwd.startswith("$2a$"):
-                #bcrypt.generate_password_hash returns bytes in some installs,
-                #use decode if needed.
+                # bcrypt.generate_password_hash returns bytes in some installs,
+                # use decode if needed.
                 hashed = bcrypt.generate_password_hash(pwd)
                 if isinstance(hashed, bytes):
                     hashed = hashed.decode("utf-8")
@@ -91,16 +94,20 @@ class UserAdminView(SecureModelView):
             else:
                 model.password = pwd
 
+
 # --- Admin Initialization ----------------------------------------------------
 
 def init_admin(app, db, User, Tariff, ContainerInfo, Report, url_prefix="/admin_panel"):
+    """
+    Initialize Flask-Admin and register views. Returns the Admin instance.
+    """
 
     admin = Admin(
         app,
         name="Alliance Admin Panel",
         index_view=SecureAdminIndexView(url=url_prefix),
         url=url_prefix,
-        template_mode="bootstrap3"
+        template_mode="bootstrap3"  # keep your chosen template mode
     )
 
     # Add views
@@ -108,10 +115,10 @@ def init_admin(app, db, User, Tariff, ContainerInfo, Report, url_prefix="/admin_
     admin.add_view(ReadOnlyView(Report, db.session, category="Reports"))
     admin.add_view(SecureModelView(ContainerInfo, db.session, category="Container Info"))
 
-    #Use the custom UserAdminView for the model 
-    admin.add_view(UserAdminView(User, db.session, category="User Management"))  # ✅ Only this for users
+    # Use the custom UserAdminView for the User model (prevents the tuple/flags issue)
+    admin.add_view(UserAdminView(User, db.session, category="User Management"))
 
-    #links in the admin menu
+    # Helpful links in the admin menu
     admin.add_link(MenuLink(name="Back to Portal", category="", url="/dashboard"))
     admin.add_link(MenuLink(name="Logout", category="", url="/logout"))
 
